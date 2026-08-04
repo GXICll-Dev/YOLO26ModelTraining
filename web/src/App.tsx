@@ -59,8 +59,8 @@ const browserRuntimeStatus: RuntimeStatus = {
 
 const defaultUpdateStatus: AppUpdateStatus = {
   phase: "idle",
-  currentVersion: "0.3.0",
-  latestVersion: "0.3.0",
+  currentVersion: "0.3.1",
+  latestVersion: "0.3.1",
   updateAvailable: false,
   releaseName: "",
   releaseNotes: "",
@@ -159,7 +159,7 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.3.0");
+  const [appVersion, setAppVersion] = useState("0.3.1");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);
@@ -1858,14 +1858,12 @@ function RuntimeInstallDialog({
         <header>
           <div>
             <strong>{status.ready ? "运行环境" : "需要安装运行环境"}</strong>
-            <span>{status.availableVersion ? `环境版本 ${status.availableVersion}` : "Python / PyTorch / CUDA 12.6"}</span>
           </div>
           <button type="button" className="modal-close" onClick={onClose} disabled={status.phase === "installing" || status.phase === "validating"}>×</button>
         </header>
         <div className="modal-body">
           <div className={`runtime-state-card ${status.ready ? "ok" : status.phase === "failed" ? "error" : "warning"}`}>
             <strong>{status.message || (status.ready ? "运行环境已就绪。" : "尚未安装运行环境。")}</strong>
-            <span>软件会自动下载、校验并部署，用户不需要安装 Python、Conda 或 CUDA Toolkit。</span>
           </div>
           <div className="runtime-facts">
             <div><span>环境标识</span><strong>{status.runtimeId || "windows-x64-cuda126-py311"}</strong></div>
@@ -1880,7 +1878,7 @@ function RuntimeInstallDialog({
             </div>
           )}
           {status.error && <pre className="desktop-modal-error">{status.error}</pre>}
-          {!status.ready && <p className="runtime-space-hint">开始前请确保磁盘至少有约 10 GiB 可用空间。下载中断后可以继续，不会从头开始。</p>}
+          {!status.ready && <p className="runtime-space-hint">开始前请确保磁盘至少有约 10 GiB 可用空间。</p>}
         </div>
         <footer>
           <button type="button" onClick={onRefresh} disabled={busy}>重新检测</button>
@@ -1923,7 +1921,6 @@ function AppUpdateDialog({
         <header>
           <div>
             <strong>软件更新</strong>
-            <span>当前版本 v{status.currentVersion}</span>
           </div>
           <button type="button" className="modal-close" onClick={onClose} disabled={status.phase === "installing"}>×</button>
         </header>
