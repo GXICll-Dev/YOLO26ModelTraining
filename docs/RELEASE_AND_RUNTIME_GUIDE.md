@@ -4,7 +4,7 @@
 
 文档创建时的已发布版本：
 
-- 应用：`v0.3.1`
+- 应用：`v0.3.2`
 - Runtime：`runtime-v1.0.0`
 - 应用仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining>
 - Runtime 仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining-Runtime>
@@ -552,7 +552,7 @@ foreach ($package in $manifest.packages) {
 - 支持 HTTP Range 断点续传；
 - 下载到 `%LOCALAPPDATA%\YOLO26ModelTrainingData\updates`；
 - 优先使用 GitHub Asset digest，否则读取 `.sha256` 文件；
-- SHA-256 通过后用 `--silent` 启动安装器并退出当前应用。
+- SHA-256 通过后启动可见的 Squirrel 安装器；确认安装器进程成功启动后退出旧应用，安装完成后由 Squirrel 自动打开新版本。
 
 ### 6.2 Runtime 更新
 
@@ -634,6 +634,10 @@ Get-ChildItem out\installer\win32\x64
 ### Windows 显示“未知发布者”
 
 当前安装包未做商业代码签名，Windows 可能显示 Unknown publisher 或 SmartScreen 提示。要消除此提示需要购买代码签名证书，并在发布脚本中增加签名和签名验证步骤。
+
+### 更新完成后没有自动重新打开
+
+检查 `electron/update-manager.cjs` 启动安装包时是否错误地传入了 `--silent`。Squirrel 的静默安装会完成文件替换，但不会自动启动新应用；正常的“重启并安装”流程必须使用无 `--silent` 参数的安装器，并在确认安装器成功启动后再退出旧应用。
 
 ## 8. 回滚和修复原则
 

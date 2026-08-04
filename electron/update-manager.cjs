@@ -57,6 +57,7 @@ class UpdateManager extends EventEmitter {
     super();
     this.currentVersion = options.currentVersion;
     this.fetch = options.fetch;
+    this.spawn = options.spawn || spawn;
     this.releaseAPI = options.releaseAPI || process.env.MT_UPDATE_RELEASE_API || DEFAULT_RELEASE_API;
     this.storageRoot = path.join(process.env.LOCALAPPDATA || options.userDataRoot, "YOLO26ModelTrainingData", "updates");
     this.release = null;
@@ -225,11 +226,45 @@ class UpdateManager extends EventEmitter {
 
   install() {
     if (!this.installerPath || !fs.existsSync(this.installerPath)) throw new Error("尚未下载可安装的更新。 ");
-    const child = spawn(this.installerPath, ["--silent"], { detached: true, stdio: "ignore", windowsHide: false });
-    child.unref();
-    this.emitState({ phase: "installing", message: "正在退出并安装更新...", error: "" });
-    this.quitAndInstall?.();
-    return this.snapshot();
+    return new Promise((resolve, reject) => {
+      let child;
+      let settled = false;
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        const message = error instanceof Error ? error.message : String(error);
+        this.emitState({ phase: "failed", message: "无法启动更新安装程序。", error: message });
+        reject(error instanceof Error ? error : new Error(message));
+      };
+
+      try {
+        // Squirrel's --silent mode installs successfully but deliberately does
+        // not launch the new application. The normal bootstrapper flow closes
+        // the old version, installs the package, and starts the new version.
+        child = this.spawn(this.installerPath, [], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: false
+        });
+      } catch (error) {
+        fail(error);
+        return;
+      }
+
+      child.once("error", fail);
+      child.once("spawn", () => {
+        if (settled) return;
+        settled = true;
+        child.unref();
+        const state = this.emitState({
+          phase: "installing",
+          message: "正在退出并安装更新，完成后将自动重新打开...",
+          error: ""
+        });
+        this.quitAndInstall?.();
+        resolve(state);
+      });
+    });
   }
 }
 
