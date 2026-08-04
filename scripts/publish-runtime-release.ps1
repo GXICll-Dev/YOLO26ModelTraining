@@ -55,8 +55,8 @@ try {
     git push origin main
     if ($LASTEXITCODE -ne 0) { throw "Could not push runtime manifest." }
 
-    & $gh release view $tag --repo GXICll-Dev/YOLO26ModelTraining-Runtime *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $releaseTags = @(& $gh release list --repo GXICll-Dev/YOLO26ModelTraining-Runtime --limit 100 --json tagName | ConvertFrom-Json | ForEach-Object { $_.tagName })
+    if ($releaseTags -notcontains $tag) {
         & $gh release create $tag --repo GXICll-Dev/YOLO26ModelTraining-Runtime --title "Runtime v$RuntimeVersion - Python 3.11 / PyTorch CUDA 12.6" --notes "Managed runtime for YOLO26ModelTraining. Every asset is SHA-256 verified before atomic deployment."
         if ($LASTEXITCODE -ne 0) { throw "Could not create runtime release $tag." }
     }

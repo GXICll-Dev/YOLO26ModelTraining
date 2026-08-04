@@ -59,8 +59,8 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not push main."
     }
-    & $gh release view $tag --repo GXICll-Dev/YOLO26ModelTraining *> $null
-    if ($LASTEXITCODE -eq 0) {
+    $releaseTags = @(& $gh release list --repo GXICll-Dev/YOLO26ModelTraining --limit 100 --json tagName | ConvertFrom-Json | ForEach-Object { $_.tagName })
+    if ($releaseTags -contains $tag) {
         & $gh release edit $tag --repo GXICll-Dev/YOLO26ModelTraining --title "YOLO26ModelTraining v$version" --notes-file $NotesFile
     } else {
         & $gh release create $tag --repo GXICll-Dev/YOLO26ModelTraining --title "YOLO26ModelTraining v$version" --notes-file $NotesFile
