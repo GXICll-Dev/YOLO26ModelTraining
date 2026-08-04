@@ -1,0 +1,30 @@
+{
+  "name": "modeltraining-yolo26-desktop",
+  "version": "0.2.1",
+  "productName": "基于YOLO26的铝型方管缺陷智能分类检测系统",
+  "description": "基于YOLO26的铝型方管缺陷智能分类检测系统",
+  "main": "electron/main.cjs",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "clean:out": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path out) { Remove-Item out -Recurse -Force }\"",
+    "clean:web": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path web/dist) { Remove-Item web/dist -Recurse -Force }\"",
+    "runtime:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1",
+    "runtime:rebuild": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1 -Force",
+    "runtime:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-portable-runtime.ps1",
+    "build:web": "npm run clean:web && npm --prefix web run build",
+    "build:server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-server-win-x64.ps1",
+    "build": "npm run build:web && npm run build:server",
+    "build:portable": "npm run runtime:prepare && npm run runtime:verify && npm run build",
+    "electron:start": "npm run build:portable && electron-forge start",
+    "package:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-packaged-app.ps1",
+    "electron:package": "npm run clean:out && npm run build:portable && electron-forge package --platform=win32 --arch=x64 && npm run package:verify",
+    "electron:make": "npm run clean:out && npm run build:portable && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-win-x64.ps1"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "electron": "^42.4.1"
+  }
+}

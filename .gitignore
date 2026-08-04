@@ -1,0 +1,50 @@
+.DS_Store
+Thumbs.db
+
+# Go
+bin/
+*.exe
+*.test
+coverage.out
+
+# TypeScript
+node_modules/
+out/
+output/
+electron-cache/
+.playwright-cli/
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Python and legacy tooling
+.venv/
+__pycache__/
+*.py[cod]
+pyarmor.bug.log
+
+# Generated data and model artifacts
+runs/
+outputs/
+artifacts/
+state/
+*.cache
+images/**/*.cache
+labels/**/*.cache
+*.pt
+*.pth
+*.onnx
+*.engine
+labelImg.exe
+
+# Bundled local tool/runtime copies
+third_party/
+tools/labelme/
+runtime/
+.cache/portable-runtime/
+
+# Local secrets and activation state
+training_license.json
+last_check.dat
+config.ini
+*.log

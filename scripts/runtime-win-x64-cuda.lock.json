@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "runtimeId": "windows-x64-cuda126-py311",
+  "target": {
+    "os": "windows",
+    "arch": "x64",
+    "pythonTag": "cp311",
+    "marker": "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'"
+  },
+  "accelerator": {
+    "flavor": "cuda",
+    "cudaVersion": "12.6",
+    "minimumWindowsDriver": "560.76",
+    "automaticDevice": true,
+    "cpuFallback": true
+  },
+  "appLocalRuntime": [
+    {
+      "name": "MSVCP140.dll",
+      "source": "tools/labelme/_internal/MSVCP140.dll",
+      "target": "python/MSVCP140.dll",
+      "version": "14.44.35208.0",
+      "sha256": "8f141b4454fa78db34bc1f28c571b4da0e00cd2c43f7ad0e282f313036826aae"
+    },
+    {
+      "name": "VCRUNTIME140.dll",
+      "source": "tools/labelme/_internal/VCRUNTIME140.dll",
+      "target": "python/VCRUNTIME140.dll",
+      "version": "14.44.35208.0",
+      "sha256": "0205071c36c17f1efbd70178c852cb7d49985c484202752b8704b7ac6b184e60"
+    },
+    {
+      "name": "VCRUNTIME140_1.dll",
+      "source": "tools/labelme/_internal/VCRUNTIME140_1.dll",
+      "target": "python/VCRUNTIME140_1.dll",
+      "version": "14.44.35208.0",
+      "sha256": "963e45edd064545962e216c12d68071ced94dc8e11862a18f07f14eb2690a57c"
+    },
+    {
+      "name": "CONCRT140.dll",
+      "fileName": "concrt140-14.44.35211-x64.dll",
+      "url": "https://msdl.microsoft.com/download/symbols/concrt140.dll/E6C651F04E000/concrt140.dll",
+      "target": "python/CONCRT140.dll",
+      "version": "14.44.35211.0",
+      "sha256": "6ef5b3569a7dddf24c56f846670bbd64bb855b6ed5ff7608489613663c588aa7"
+    }
+  ],
+  "python": {
+    "version": "3.11.9",
+    "archiveName": "python-3.11.9-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip",
+    "sha256": "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b"
+  },
+  "pip": {
+    "version": "25.1.1",
+    "wheelName": "pip-25.1.1-py3-none-any.whl",
+    "url": "https://files.pythonhosted.org/packages/29/a2/d40fb2460e883eca5199c62cfc2463fd261f760556ae6290f88488c362c0/pip-25.1.1-py3-none-any.whl",
+    "sha256": "2913a38a2abf4ea6b64ab507bd9e967f3b53dc1ede74b01b0931e1ce548751af"
+  },
+  "runtimeWheels": [
+    {
+      "package": "torch",
+      "version": "2.7.1+cu126",
+      "marker": "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
+      "fileName": "torch-2.7.1+cu126-cp311-cp311-win_amd64.whl",
+      "url": "https://download-r2.pytorch.org/whl/cu126/torch-2.7.1%2Bcu126-cp311-cp311-win_amd64.whl",
+      "sha256": "f3af23387ac106b5b01dbef0eb021883e0c00ff4073477b7ce1cbade5ef5038d"
+    },
+    {
+      "package": "torchvision",
+      "version": "0.22.1+cu126",
+      "marker": "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'",
+      "fileName": "torchvision-0.22.1+cu126-cp311-cp311-win_amd64.whl",
+      "url": "https://download-r2.pytorch.org/whl/cu126/torchvision-0.22.1%2Bcu126-cp311-cp311-win_amd64.whl",
+      "sha256": "a2f2dec920c2f023e406caf342fae0d9071eeaca54fc0367ef66136765e6de5b"
+    }
+  ],
+  "packages": [
+    "setuptools==80.9.0",
+    "wheel==0.45.1",
+    "numpy==2.2.6",
+    "matplotlib==3.10.3",
+    "opencv-python-headless==4.11.0.86",
+    "pillow==11.2.1",
+    "pyyaml==6.0.2",
+    "requests==2.32.3",
+    "scipy==1.15.3",
+    "psutil==7.0.0",
+    "polars==1.30.0",
+    "ultralytics-thop==2.0.18",
+    "contourpy==1.3.2",
+    "cycler==0.12.1",
+    "fonttools==4.58.1",
+    "kiwisolver==1.4.8",
+    "packaging==25.0",
+    "pyparsing==3.2.3",
+    "python-dateutil==2.9.0.post0",
+    "six==1.17.0",
+    "charset-normalizer==3.4.2",
+    "idna==3.10",
+    "urllib3==2.4.0",
+    "certifi==2025.4.26",
+    "filelock==3.18.0",
+    "typing-extensions==4.13.2",
+    "sympy==1.14.0",
+    "networkx==3.4.2",
+    "jinja2==3.1.6",
+    "fsspec==2025.5.1",
+    "mpmath==1.3.0",
+    "markupsafe==3.0.2"
+  ],
+  "packageIndex": "https://pypi.org/simple",
+  "ultralytics": {
+    "version": "8.4.10",
+    "source": "third_party/ultralytics-8.4.10"
+  },
+  "model": {
+    "source": "yolo26n.pt",
+    "targetName": "yolo26n.pt",
+    "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+  }
+}
