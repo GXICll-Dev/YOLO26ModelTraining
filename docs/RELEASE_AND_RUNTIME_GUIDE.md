@@ -4,7 +4,7 @@
 
 文档创建时的已发布版本：
 
-- 应用：`v0.3.2`
+- 应用：`v0.3.3`
 - Runtime：`runtime-v1.0.0`
 - 应用仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining>
 - Runtime 仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining-Runtime>
@@ -43,6 +43,8 @@ Runtime ZIP 不提交进 Git。它们只作为 GitHub Release Assets 上传。
 ```text
 %LOCALAPPDATA%\YOLO26ModelTraining
 ```
+
+Windows 会在当前用户的“设置 → 应用 → 已安装的应用”中注册标准卸载项。安装、更新或正常启动时还会把真实的 `Uninstall.exe` 部署到 `%LOCALAPPDATA%\YOLO26ModelTraining\Uninstall.exe`；双击后由它调用同目录的 `Update.exe --uninstall` 执行 Squirrel 官方卸载流程。
 
 大体积 Runtime、下载缓存和软件更新安装包放在独立数据目录：
 

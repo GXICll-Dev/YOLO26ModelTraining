@@ -5,9 +5,23 @@ const http = require("http");
 const net = require("net");
 const path = require("path");
 const { RuntimeManager } = require("./runtime-manager.cjs");
+const { deployUninstaller, removeInstalledUninstaller } = require("./uninstaller.cjs");
 const { UpdateManager } = require("./update-manager.cjs");
 
-if (require("electron-squirrel-startup")) {
+const squirrelCommand = process.argv[1] || "";
+if (process.platform === "win32" && app.isPackaged) {
+  try {
+    if (squirrelCommand === "--squirrel-uninstall") {
+      removeInstalledUninstaller({ execPath: process.execPath });
+    } else {
+      deployUninstaller({ resourceRoot: process.resourcesPath, execPath: process.execPath });
+    }
+  } catch (error) {
+    console.error("Could not maintain Uninstall.exe:", error);
+  }
+}
+const squirrelStartup = require("electron-squirrel-startup");
+if (squirrelStartup) {
   app.quit();
 }
 
@@ -341,8 +355,16 @@ function sendDesktopStatus(channel, payload) {
   }
 }
 
-app.whenReady().then(async () => {
+if (!squirrelStartup) app.whenReady().then(async () => {
   try {
+    if (app.isPackaged && process.platform === "win32") {
+      try {
+        const deployed = deployUninstaller({ resourceRoot: process.resourcesPath, execPath: process.execPath });
+        if (!deployed) console.error("Could not deploy Uninstall.exe because the bundled uninstaller is missing.");
+      } catch (error) {
+        console.error("Could not deploy Uninstall.exe:", error);
+      }
+    }
     const fetcher = (url, init) => electronNet.fetch(url, init);
     runtimeManager = new RuntimeManager({
       resourceRoot: resourceRoot(),

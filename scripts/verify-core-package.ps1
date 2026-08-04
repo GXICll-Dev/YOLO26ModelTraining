@@ -13,6 +13,7 @@ $required = @(
     (Join-Path $PackageRoot "YOLO26ModelTraining.exe"),
     (Join-Path $resources "app.asar"),
     (Join-Path $resources "bin\modeltraining-server.exe"),
+    (Join-Path $resources "bin\YOLO26ModelTraining-Uninstall.exe"),
     (Join-Path $resources "dist\index.html")
 )
 foreach ($path in $required) {
