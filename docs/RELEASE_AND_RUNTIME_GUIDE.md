@@ -4,7 +4,7 @@
 
 文档创建时的已发布版本：
 
-- 应用：`v0.3.4`
+- 应用：`v0.3.5`
 - Runtime：`runtime-v1.0.0`
 - 应用仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining>
 - Runtime 仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining-Runtime>
@@ -46,15 +46,19 @@ Runtime ZIP 不提交进 Git。它们只作为 GitHub Release Assets 上传。
 
 Windows 会在当前用户的“设置 → 应用 → 已安装的应用”中注册标准卸载项。安装、更新或正常启动时还会把真实的 `Uninstall.exe` 部署到 `%LOCALAPPDATA%\YOLO26ModelTraining\Uninstall.exe`；双击后由它调用同目录的 `Update.exe --uninstall` 执行 Squirrel 官方卸载流程。
 
-大体积 Runtime、下载缓存和软件更新安装包放在独立数据目录：
+所有由程序管理的内容统一位于同一个应用根目录：
 
 ```text
-%LOCALAPPDATA%\YOLO26ModelTrainingData\runtime\windows-x64-cuda126-py311
-%LOCALAPPDATA%\YOLO26ModelTrainingData\downloads\runtime
-%LOCALAPPDATA%\YOLO26ModelTrainingData\updates
+%LOCALAPPDATA%\YOLO26ModelTraining\app-<version>
+%LOCALAPPDATA%\YOLO26ModelTraining\runtime\windows-x64-cuda126-py311
+%LOCALAPPDATA%\YOLO26ModelTraining\downloads\runtime
+%LOCALAPPDATA%\YOLO26ModelTraining\updates
+%LOCALAPPDATA%\YOLO26ModelTraining\user-data
 ```
 
-这样普通软件升级或卸载不会误删 Runtime。用户重新安装应用后可以继续复用已经验证通过的 Runtime。
+其中 `downloads\runtime` 只在下载或未完成部署时存在；Runtime 完成解压、验证和原子切换后会立即删除全部分包和该下载目录。`v0.3.5` 启动时会把旧版 `%LOCALAPPDATA%\YOLO26ModelTrainingData` 以及旧 Electron 用户数据迁移到新目录。
+
+卸载会删除整个 `%LOCALAPPDATA%\YOLO26ModelTraining`，并额外清理仍然存在的旧版目录，因此主程序、Runtime、缓存、更新安装包、日志和内部状态不会保留。用户自行选择的训练项目、图片和训练输出不属于程序安装目录，不能在卸载时删除。
 
 ## 2. 整体更新流程
 
@@ -554,7 +558,7 @@ foreach ($package in $manifest.packages) {
 - 使用语义化版本比较；
 - 查找 `YOLO26ModelTraining-Setup-*.exe`；
 - 支持 HTTP Range 断点续传；
-- 下载到 `%LOCALAPPDATA%\YOLO26ModelTrainingData\updates`；
+- 下载到 `%LOCALAPPDATA%\YOLO26ModelTraining\updates`；
 - 优先使用 GitHub Asset digest，否则读取 `.sha256` 文件；
 - SHA-256 通过后启动可见的 Squirrel 安装器；确认安装器进程成功启动后退出旧应用，安装完成后由 Squirrel 自动打开新版本。
 
@@ -571,6 +575,7 @@ foreach ($package in $manifest.packages) {
 - 校验关键文件并运行 Python/PyTorch/YOLO 冒烟测试；
 - 写入 `installed-runtime.json`；
 - 先备份旧 Runtime，再原子切换新目录；
+- 部署成功后删除全部 Runtime ZIP 分包和 `downloads\runtime`；
 - 失败时清理 staging 并继续保留旧 Runtime。
 
 环境变量覆盖入口仅用于开发或测试：

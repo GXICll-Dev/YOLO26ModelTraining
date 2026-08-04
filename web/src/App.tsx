@@ -61,8 +61,8 @@ const browserRuntimeStatus: RuntimeStatus = {
 
 const defaultUpdateStatus: AppUpdateStatus = {
   phase: "idle",
-  currentVersion: "0.3.4",
-  latestVersion: "0.3.4",
+  currentVersion: "0.3.5",
+  latestVersion: "0.3.5",
   updateAvailable: false,
   releaseName: "",
   releaseNotes: "",
@@ -161,7 +161,7 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.3.4");
+  const [appVersion, setAppVersion] = useState("0.3.5");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);

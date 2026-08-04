@@ -59,7 +59,9 @@ class UpdateManager extends EventEmitter {
     this.fetch = options.fetch;
     this.spawn = options.spawn || spawn;
     this.releaseAPI = options.releaseAPI || process.env.MT_UPDATE_RELEASE_API || DEFAULT_RELEASE_API;
-    this.storageRoot = path.join(process.env.LOCALAPPDATA || options.userDataRoot, "YOLO26ModelTrainingData", "updates");
+    const localAppData = options.localAppDataRoot || process.env.LOCALAPPDATA || options.userDataRoot;
+    const appRoot = options.appRoot || path.join(localAppData, "YOLO26ModelTraining");
+    this.storageRoot = path.join(appRoot, "updates");
     this.release = null;
     this.installer = null;
     this.checksum = "";

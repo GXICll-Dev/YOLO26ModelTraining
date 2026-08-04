@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { normalizeManifest, runtimeFilesReady, safeRelativePath, safeRuntimeId } = require("./runtime-manager.cjs");
+const { RuntimeManager, normalizeManifest, runtimeFilesReady, safeRelativePath, safeRuntimeId } = require("./runtime-manager.cjs");
 
 test("normalizes a versioned multi-package runtime manifest", () => {
   const manifest = normalizeManifest({
@@ -41,6 +41,23 @@ test("checks the installed runtime using exact required file sizes", () => {
     fs.writeFileSync(path.join(root, "python", "python.exe"), "12345");
     assert.equal(runtimeFilesReady(root, [{ path: "python/python.exe", size: 5 }]), true);
     assert.equal(runtimeFilesReady(root, [{ path: "python/python.exe", size: 6 }]), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("stores managed runtime under the application root and removes deployed archives", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-storage-test-"));
+  try {
+    const manager = new RuntimeManager({ appRoot: root, resourceRoot: root, fetch: global.fetch });
+    assert.equal(manager.runtimeBase, path.join(root, "runtime"));
+    assert.equal(manager.downloadRoot, path.join(root, "downloads", "runtime"));
+
+    fs.mkdirSync(manager.downloadRoot, { recursive: true });
+    fs.writeFileSync(path.join(manager.downloadRoot, "runtime-base.zip"), "archive");
+    await manager.clearDownloadCache();
+
+    assert.equal(fs.existsSync(path.join(root, "downloads")), false);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

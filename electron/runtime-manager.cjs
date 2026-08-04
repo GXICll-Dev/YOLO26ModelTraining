@@ -209,13 +209,11 @@ class RuntimeManager extends EventEmitter {
     this.resourceRoot = options.resourceRoot;
     this.fetch = options.fetch;
     this.manifestURL = options.manifestURL || process.env.MT_RUNTIME_MANIFEST_URL || DEFAULT_MANIFEST_URL;
-    const localAppData = process.env.LOCALAPPDATA || options.userDataRoot;
-    // Keep the multi-gigabyte runtime outside Squirrel's application root
-    // (%LOCALAPPDATA%/YOLO26ModelTraining), otherwise uninstall/update could
-    // remove or replace the managed runtime together with the app version.
-    this.storageRoot = path.join(localAppData, "YOLO26ModelTrainingData");
+    const localAppData = options.localAppDataRoot || process.env.LOCALAPPDATA || options.userDataRoot;
+    this.storageRoot = options.appRoot || path.join(localAppData, "YOLO26ModelTraining");
     this.runtimeBase = path.join(this.storageRoot, "runtime");
-    this.downloadRoot = path.join(this.storageRoot, "downloads", "runtime");
+    this.downloadBase = path.join(this.storageRoot, "downloads");
+    this.downloadRoot = path.join(this.downloadBase, "runtime");
     this.manifest = null;
     this.abortController = null;
     this.activeInstall = null;
@@ -281,9 +279,19 @@ class RuntimeManager extends EventEmitter {
     return this.state.ready ? this.state.runtimeRoot : "";
   }
 
+  async clearDownloadCache() {
+    await removeDirectory(this.downloadRoot);
+    try {
+      await fs.promises.rmdir(this.downloadBase);
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
+    }
+  }
+
   async refresh(options = {}) {
     const local = this.findReadyRoot();
     if (local) {
+      if (local.source === "managed") await this.clearDownloadCache();
       this.emitState({
         phase: "ready",
         ready: true,
@@ -429,6 +437,8 @@ class RuntimeManager extends EventEmitter {
           probe
         };
         await fs.promises.writeFile(path.join(staging, INSTALL_MARKER), JSON.stringify(marker, null, 2), "utf8");
+        this.emitState({ phase: "installing", percent: 99, currentPackage: "", message: "正在清理运行环境安装分包..." });
+        await this.clearDownloadCache();
         await this.activate(staging, this.managedRoot(manifest.runtimeId));
         return this.emitState({
           phase: "ready",

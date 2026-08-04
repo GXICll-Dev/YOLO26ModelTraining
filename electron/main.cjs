@@ -5,19 +5,63 @@ const http = require("http");
 const net = require("net");
 const path = require("path");
 const { RuntimeManager } = require("./runtime-manager.cjs");
+const {
+  managedAppRoot,
+  managedUserDataRoot,
+  migrateLegacyStorage,
+  removeLegacyStorage
+} = require("./storage-layout.cjs");
 const { deployUninstaller, removeInstalledUninstaller } = require("./uninstaller.cjs");
 const { UpdateManager } = require("./update-manager.cjs");
 
 const squirrelCommand = process.argv[1] || "";
+const legacyElectronUserDataRoot = app.getPath("userData");
+const applicationRoot = managedAppRoot({
+  isPackaged: app.isPackaged,
+  execPath: process.execPath,
+  localAppData: process.env.LOCALAPPDATA,
+  userDataRoot: legacyElectronUserDataRoot
+});
+
 if (process.platform === "win32" && app.isPackaged) {
   try {
     if (squirrelCommand === "--squirrel-uninstall") {
+      const cleanup = removeLegacyStorage({
+        appRoot: applicationRoot,
+        localAppData: process.env.LOCALAPPDATA,
+        legacyUserDataRoot: legacyElectronUserDataRoot
+      });
+      for (const failure of cleanup.errors) {
+        console.error(`Could not remove legacy application data ${failure.path}: ${failure.error}`);
+      }
       removeInstalledUninstaller({ execPath: process.execPath });
     } else {
+      if (squirrelCommand !== "--squirrel-obsolete") {
+        const migrationErrors = migrateLegacyStorage({
+          appRoot: applicationRoot,
+          localAppData: process.env.LOCALAPPDATA,
+          legacyUserDataRoot: legacyElectronUserDataRoot
+        });
+        for (const failure of migrationErrors) {
+          console.error(`Could not migrate application data ${failure.path}: ${failure.error}`);
+        }
+      }
+      const userDataRoot = managedUserDataRoot(applicationRoot);
+      fs.mkdirSync(userDataRoot, { recursive: true });
+      app.setPath("userData", userDataRoot);
+      const sessionDataRoot = path.join(userDataRoot, "session-data");
+      const crashDumpsRoot = path.join(userDataRoot, "crash-dumps");
+      const logsRoot = path.join(userDataRoot, "logs");
+      fs.mkdirSync(sessionDataRoot, { recursive: true });
+      fs.mkdirSync(crashDumpsRoot, { recursive: true });
+      fs.mkdirSync(logsRoot, { recursive: true });
+      app.setPath("sessionData", sessionDataRoot);
+      app.setPath("crashDumps", crashDumpsRoot);
+      app.setAppLogsPath(logsRoot);
       deployUninstaller({ resourceRoot: process.resourcesPath, execPath: process.execPath });
     }
   } catch (error) {
-    console.error("Could not maintain Uninstall.exe:", error);
+    console.error("Could not prepare managed application storage:", error);
   }
 }
 const squirrelStartup = require("electron-squirrel-startup");
@@ -368,7 +412,7 @@ if (!squirrelStartup) app.whenReady().then(async () => {
     const fetcher = (url, init) => electronNet.fetch(url, init);
     runtimeManager = new RuntimeManager({
       resourceRoot: resourceRoot(),
-      userDataRoot: app.getPath("userData"),
+      appRoot: applicationRoot,
       fetch: fetcher
     });
     runtimeManager.on("status", (status) => sendDesktopStatus("runtime:status", status));
@@ -376,7 +420,7 @@ if (!squirrelStartup) app.whenReady().then(async () => {
 
     updateManager = new UpdateManager({
       currentVersion: app.getVersion(),
-      userDataRoot: app.getPath("userData"),
+      appRoot: applicationRoot,
       fetch: fetcher,
       quitAndInstall: () => setTimeout(() => app.quit(), 500)
     });

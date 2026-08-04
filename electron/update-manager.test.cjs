@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
+const path = require("node:path");
 const test = require("node:test");
 
 const { UpdateManager, compareVersions, versionParts } = require("./update-manager.cjs");
@@ -14,6 +15,12 @@ test("compares stable and prerelease versions", () => {
   assert.equal(compareVersions("0.3.0", "0.3.0"), 0);
   assert.equal(compareVersions("0.3.0-beta.1", "0.3.0"), -1);
   assert.equal(compareVersions("1.0.0", "0.99.99"), 1);
+});
+
+test("stores downloaded application updates under the Squirrel application root", () => {
+  const appRoot = path.join(process.cwd(), "YOLO26ModelTraining");
+  const manager = new UpdateManager({ currentVersion: "0.3.5", fetch: global.fetch, appRoot });
+  assert.equal(manager.storageRoot, path.join(appRoot, "updates"));
 });
 
 test("starts the visible Squirrel installer and quits only after it spawns", async () => {

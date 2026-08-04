@@ -167,8 +167,10 @@ https://raw.githubusercontent.com/GXICll-Dev/YOLO26ModelTraining-Runtime/main/ru
 缺少运行环境时，界面左下角显示红色提示。用户点击后，程序会逐包下载 GitHub Release 附件、断点续传、验证 SHA-256、解压到临时目录、执行 Python/PyTorch/YOLO 冒烟测试，并在全部通过后原子切换到：
 
 ```text
-%LOCALAPPDATA%\YOLO26ModelTrainingData\runtime\windows-x64-cuda126-py311
+%LOCALAPPDATA%\YOLO26ModelTraining\runtime\windows-x64-cuda126-py311
 ```
+
+主程序、Runtime、下载缓存、软件更新文件、日志和内部状态都位于 `%LOCALAPPDATA%\YOLO26ModelTraining`。Runtime 分包在成功部署后会自动删除；卸载程序会删除整个应用目录和旧版遗留数据，但不会删除用户自行选择的训练项目目录。
 
 生成并验证 Runtime Release：
 
