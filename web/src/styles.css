@@ -2176,6 +2176,59 @@ p {
   white-space: nowrap;
 }
 
+.status-left {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+}
+
+.status-message {
+  flex: 1 1 auto;
+}
+
+.version-status,
+.runtime-status {
+  min-height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #606774;
+  padding: 1px 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.version-status:hover,
+.runtime-status:hover {
+  background: #eef3fb;
+  color: #154a9f;
+}
+
+.version-status.has-update,
+.runtime-status.missing {
+  color: #c81e1e;
+  font-weight: 700;
+}
+
+.runtime-status.ready {
+  color: #24733f;
+}
+
+.status-red-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  min-width: 7px !important;
+  margin-right: 4px;
+  overflow: visible !important;
+  border-radius: 50%;
+  background: #df1f2d;
+  box-shadow: 0 0 0 2px rgba(223, 31, 45, 0.13);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2185,6 +2238,224 @@ p {
   justify-content: center;
   background: rgba(255, 255, 255, 0.58);
   -webkit-app-region: no-drag;
+}
+
+.desktop-modal {
+  width: 620px;
+  max-height: 720px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #d8dde6;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 22px 70px rgba(20, 30, 48, 0.24);
+}
+
+.desktop-modal > header {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #e5e8ee;
+  padding: 10px 16px;
+}
+
+.desktop-modal > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-modal > header strong {
+  color: #151922;
+  font-size: 18px;
+}
+
+.desktop-modal > header span {
+  color: #707784;
+  font-size: 12px;
+}
+
+.modal-close {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: #f1f3f6;
+  color: #4c535f;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.desktop-modal .modal-body {
+  min-height: 0;
+  display: grid;
+  gap: 14px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.desktop-modal > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  border-top: 1px solid #e5e8ee;
+  padding: 12px 16px;
+}
+
+.desktop-modal > footer button {
+  min-width: 104px;
+  min-height: 36px;
+  font-weight: 700;
+}
+
+.desktop-modal .primary-action {
+  border-color: #0057d9;
+  background: #0057d9;
+  color: #ffffff;
+}
+
+.runtime-state-card {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #dbe1ea;
+  border-radius: 10px;
+  background: #f7f9fc;
+  padding: 13px 14px;
+}
+
+.runtime-state-card.ok {
+  border-color: #b9ddc5;
+  background: #f1fbf4;
+}
+
+.runtime-state-card.warning {
+  border-color: #f0d69e;
+  background: #fff9ec;
+}
+
+.runtime-state-card.error {
+  border-color: #efb5b5;
+  background: #fff3f3;
+}
+
+.runtime-state-card span,
+.runtime-space-hint,
+.installer-size {
+  color: #687180;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.runtime-facts {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 8px;
+}
+
+.runtime-facts > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border-radius: 8px;
+  background: #f3f5f8;
+  padding: 9px 10px;
+}
+
+.runtime-facts span {
+  color: #757d89;
+  font-size: 11px;
+}
+
+.runtime-facts strong {
+  overflow: hidden;
+  color: #252a33;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-download-progress {
+  display: grid;
+  gap: 7px;
+}
+
+.desktop-download-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #444c59;
+  font-size: 12px;
+}
+
+.desktop-download-progress small {
+  color: #737b88;
+  text-align: right;
+}
+
+.desktop-modal-error {
+  max-height: 130px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #f0b7b7;
+  border-radius: 8px;
+  background: #fff4f4;
+  color: #9e1c1c;
+  padding: 9px 10px;
+  font: 12px/1.5 "SF Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.update-version-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 16px;
+  align-items: center;
+  border-radius: 10px;
+  background: #f2f5fa;
+  padding: 13px 14px;
+}
+
+.update-version-card.available {
+  border: 1px solid #efb7b7;
+  background: #fff5f5;
+}
+
+.update-version-card span,
+.update-version-card small {
+  color: #69717e;
+  font-size: 12px;
+}
+
+.update-version-card strong {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  color: #172032;
+  font-size: 22px;
+}
+
+.release-notes {
+  display: grid;
+  gap: 7px;
+}
+
+.release-notes pre {
+  min-height: 130px;
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #dfe3e9;
+  border-radius: 9px;
+  background: #fafbfc;
+  color: #343a46;
+  padding: 11px 12px;
+  font: 13px/1.6 "Microsoft YaHei", sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .class-dialog {

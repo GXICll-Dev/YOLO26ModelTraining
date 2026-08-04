@@ -1,14 +1,22 @@
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, session } = require("electron");
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, net: electronNet, session } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
 const net = require("net");
 const path = require("path");
+const { RuntimeManager } = require("./runtime-manager.cjs");
+const { UpdateManager } = require("./update-manager.cjs");
+
+if (require("electron-squirrel-startup")) {
+  app.quit();
+}
 
 let backendProcess = null;
 let mainWindow = null;
 let shuttingDown = false;
 let appURL = "";
+let runtimeManager = null;
+let updateManager = null;
 
 function resourceRoot() {
   return app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
@@ -151,7 +159,7 @@ function configurePermissions() {
   });
 }
 
-async function startBackend() {
+async function startBackend(runtimeRoot = "") {
   const root = resourceRoot();
   const executable = serverExecutable(root);
   if (!fs.existsSync(executable)) {
@@ -177,6 +185,9 @@ async function startBackend() {
     MT_ADDR: address,
     MT_BASE_DIR: root,
     MT_STATE_DIR: stateDir,
+    MT_RUNTIME_ROOT: runtimeRoot,
+    MT_RUNTIME_READY: runtimeRoot ? "1" : "0",
+    MT_MANAGED_RUNTIME_REQUIRED: app.isPackaged ? "1" : "0",
     PYTHONUTF8: "1",
     PYTHONIOENCODING: "utf-8",
     PYTHONNOUSERSITE: "1",
@@ -192,17 +203,16 @@ async function startBackend() {
     TORCH_HOME: torchCacheDir
   };
 
-  const bundledPython = [
-    path.join(root, "python", "python.exe"),
-    path.join(root, "runtime", "python", "python.exe")
-  ].find(isNonEmptyFile);
-  if (app.isPackaged && !bundledPython) {
-    throw new Error("内置 Python 运行时不完整，请重新解压完整程序包。");
+  // Packaged core builds deliberately start without Python. The renderer can
+  // then download and atomically deploy the separately versioned runtime.
+  const bundledPython = runtimeRoot ? path.join(runtimeRoot, "python", "python.exe") : "";
+  if (runtimeRoot && !isNonEmptyFile(bundledPython)) {
+    throw new Error(`已安装的运行环境缺少 Python：${bundledPython}`);
   }
-  if (app.isPackaged && bundledPython) {
+  if (runtimeRoot && bundledPython) {
     const pythonDir = path.dirname(bundledPython);
     const requiredRuntimeFiles = [
-      path.join(root, "runtime-manifest.json"),
+      path.join(runtimeRoot, "runtime-manifest.json"),
       path.join(pythonDir, "MSVCP140.dll"),
       path.join(pythonDir, "CONCRT140.dll")
     ];
@@ -211,8 +221,8 @@ async function startBackend() {
       throw new Error(`内置训练运行时不完整：${missingRuntimeFile}`);
     }
   }
-  if (bundledPython) {
-    // A portable build must not be redirected into a machine-wide Python,
+  if (app.isPackaged || bundledPython) {
+    // A release build must not be redirected into a machine-wide Python,
     // Conda environment, or Ultralytics source tree inherited from the host.
     deleteEnvironmentKeys(env, [
       "PYTHONHOME",
@@ -231,6 +241,8 @@ async function startBackend() {
       "VIRTUAL_ENV",
       "CUDA_VISIBLE_DEVICES"
     ]);
+  }
+  if (bundledPython) {
     const pythonDir = path.dirname(bundledPython);
     const pathVariable = Object.keys(env).find((name) => name.toLowerCase() === "path") || "PATH";
     env.MT_PYTHON_CMD = bundledPython;
@@ -239,16 +251,13 @@ async function startBackend() {
       .join(path.delimiter);
   }
 
-  const bundledModel = firstBundledModel(root);
-  if (app.isPackaged && !bundledModel) {
-    throw new Error("内置 YOLO26 模型不完整，请重新解压完整程序包。");
-  }
+  const bundledModel = runtimeRoot ? firstBundledModel(runtimeRoot) : "";
   if (bundledModel) {
     env.YOLO_MODEL_DIR = path.dirname(bundledModel);
     env.YOLO_MODEL_PATH = bundledModel;
   }
 
-  const bundledUltralytics = path.join(root, "third_party", "ultralytics-8.4.10");
+  const bundledUltralytics = runtimeRoot ? path.join(runtimeRoot, "third_party", "ultralytics-8.4.10") : "";
   if (fs.existsSync(bundledUltralytics)) {
     env.ULTRALYTICS_DIR = bundledUltralytics;
     if (!env.YOLO_MODEL_DIR) {
@@ -256,10 +265,7 @@ async function startBackend() {
     }
   }
 
-  const bundledLabelMe = path.join(root, "tools", "labelme", "labelme.exe");
-  if (app.isPackaged && !isNonEmptyFile(bundledLabelMe)) {
-    throw new Error("内置 LabelMe 工具不完整，请重新解压完整程序包。");
-  }
+  const bundledLabelMe = runtimeRoot ? path.join(runtimeRoot, "tools", "labelme", "labelme.exe") : "";
   if (fs.existsSync(bundledLabelMe)) {
     env.LABELME_PATH = bundledLabelMe;
   }
@@ -329,12 +335,43 @@ function stopBackend() {
   backendProcess = null;
 }
 
+function sendDesktopStatus(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, payload);
+  }
+}
+
 app.whenReady().then(async () => {
   try {
-    const url = await startBackend();
+    const fetcher = (url, init) => electronNet.fetch(url, init);
+    runtimeManager = new RuntimeManager({
+      resourceRoot: resourceRoot(),
+      userDataRoot: app.getPath("userData"),
+      fetch: fetcher
+    });
+    runtimeManager.on("status", (status) => sendDesktopStatus("runtime:status", status));
+    await runtimeManager.refresh({ fetchRemote: false });
+
+    updateManager = new UpdateManager({
+      currentVersion: app.getVersion(),
+      userDataRoot: app.getPath("userData"),
+      fetch: fetcher,
+      quitAndInstall: () => setTimeout(() => app.quit(), 500)
+    });
+    updateManager.on("status", (status) => sendDesktopStatus("update:status", status));
+
+    const url = await startBackend(runtimeManager.readyRuntimeRoot());
     configurePermissions();
     createWindow(url);
     registerShortcuts();
+    mainWindow.webContents.once("did-finish-load", () => {
+      sendDesktopStatus("runtime:status", runtimeManager.snapshot());
+      sendDesktopStatus("update:status", updateManager.snapshot());
+      setTimeout(() => void runtimeManager.refresh({ fetchRemote: true }), 800);
+      if (app.isPackaged) {
+        setTimeout(() => void updateManager.check(), 1500);
+      }
+    });
   } catch (error) {
     dialog.showErrorBox("启动失败", error instanceof Error ? error.message : String(error));
     app.quit();
@@ -357,6 +394,40 @@ ipcMain.handle("window:minimize", (event) => {
 
 ipcMain.handle("window:close", (event) => {
   BrowserWindow.fromWebContents(event.sender)?.close();
+});
+
+ipcMain.handle("app:get-version", () => app.getVersion());
+
+ipcMain.handle("runtime:get-status", () => runtimeManager?.snapshot() ?? null);
+
+ipcMain.handle("runtime:refresh", () => runtimeManager?.refresh({ fetchRemote: true }) ?? null);
+
+ipcMain.handle("runtime:install", async () => {
+  if (!runtimeManager) throw new Error("运行环境管理器尚未启动。");
+  const status = await runtimeManager.install();
+  setTimeout(() => {
+    app.relaunch();
+    app.exit(0);
+  }, 1000);
+  return status;
+});
+
+ipcMain.handle("runtime:cancel", () => runtimeManager?.cancel() ?? false);
+
+ipcMain.handle("update:get-status", () => updateManager?.snapshot() ?? null);
+
+ipcMain.handle("update:check", () => updateManager?.check() ?? null);
+
+ipcMain.handle("update:download", () => {
+  if (!updateManager) throw new Error("软件更新管理器尚未启动。");
+  return updateManager.download();
+});
+
+ipcMain.handle("update:cancel", () => updateManager?.cancel() ?? false);
+
+ipcMain.handle("update:install", () => {
+  if (!updateManager) throw new Error("软件更新管理器尚未启动。");
+  return updateManager.install();
 });
 
 ipcMain.handle("dialog:choose-directory", async (event) => {

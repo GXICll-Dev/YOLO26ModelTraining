@@ -50,6 +50,9 @@ type RuntimeProbeReport struct {
 
 func NewRunner() Runner {
 	configuredPython := normalizeConfiguredCommand(os.Getenv("MT_PYTHON_CMD"))
+	if managedRuntimeRequired() && configuredPython == "" {
+		return Runner{}
+	}
 	configuredUltralytics := strings.TrimSpace(os.Getenv("ULTRALYTICS_DIR"))
 	ultralyticsDir := resolveUltralyticsDir(configuredUltralytics, configuredPython != "", defaultUltralyticsDirCandidates()...)
 	pythonCommand := resolvePythonCommand(os.Getenv("MT_PYTHON_CMD"), exec.LookPath)
@@ -65,6 +68,11 @@ func NewRunner() Runner {
 		UltralyticsDir:  ultralyticsDir,
 		ModelDirs:       modelSearchDirs(ultralyticsDir),
 	}
+}
+
+func managedRuntimeRequired() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("MT_MANAGED_RUNTIME_REQUIRED")))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 func (r Runner) StartTrain(parent context.Context, task *tasks.Task, cfg dataset.TrainingConfig) {

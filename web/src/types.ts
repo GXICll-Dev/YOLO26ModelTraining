@@ -197,3 +197,36 @@ export interface LicenseStatus {
   machineCode: string;
   mode: string;
 }
+
+export interface RuntimeStatus {
+  phase: "checking" | "missing" | "downloading" | "verifying" | "installing" | "validating" | "ready" | "failed";
+  ready: boolean;
+  source?: "managed" | "bundled" | "development" | string;
+  runtimeId: string;
+  localVersion: string;
+  availableVersion: string;
+  runtimeRoot: string;
+  manifestURL: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  percent: number;
+  currentPackage: string;
+  updateAvailable?: boolean;
+  message: string;
+  error: string;
+}
+
+export interface AppUpdateStatus {
+  phase: "idle" | "checking" | "available" | "downloading" | "verifying" | "downloaded" | "installing" | "failed";
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  releaseName: string;
+  releaseNotes: string;
+  publishedAt: string;
+  installerSize: number;
+  downloadedBytes: number;
+  percent: number;
+  message: string;
+  error: string;
+}

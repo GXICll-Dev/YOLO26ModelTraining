@@ -396,6 +396,9 @@ func (s *Server) handleProjectPreflight(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleStartTrain(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	var cfg dataset.TrainingConfig
 	if err := readJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -418,6 +421,9 @@ func (s *Server) handleStartTrain(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStartPredict(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	var cfg dataset.PredictionConfig
 	if err := readJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -446,6 +452,9 @@ func (s *Server) handleStartPredict(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUploadPredictImage(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	if err := r.ParseMultipartForm(256 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -484,6 +493,9 @@ func (s *Server) handleUploadPredictImage(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleAutoAnnotate(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	var cfg dataset.AutoAnnotateConfig
 	if err := readJSON(r, &cfg); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -537,6 +549,9 @@ func (s *Server) handleAutoAnnotate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePredictFrame(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -580,6 +595,9 @@ func (s *Server) handlePredictFrame(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePredictWebcam(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	s.stopPredictWebcam()
 	root, err := dataset.NormalizeRoot(r.URL.Query().Get("rootPath"))
 	if err != nil {
@@ -814,6 +832,9 @@ func (s *Server) handleImageFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLaunchLabelMe(w http.ResponseWriter, r *http.Request) {
+	if rejectMissingManagedRuntime(w) {
+		return
+	}
 	var req struct {
 		RootPath  string `json:"rootPath"`
 		ImageDir  string `json:"imageDir"`
@@ -1611,6 +1632,19 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]any{"error": message})
+}
+
+func rejectMissingManagedRuntime(w http.ResponseWriter) bool {
+	required := strings.TrimSpace(strings.ToLower(os.Getenv("MT_MANAGED_RUNTIME_REQUIRED")))
+	ready := strings.TrimSpace(strings.ToLower(os.Getenv("MT_RUNTIME_READY")))
+	if required != "1" && required != "true" && required != "yes" {
+		return false
+	}
+	if ready == "1" || ready == "true" || ready == "yes" {
+		return false
+	}
+	writeError(w, http.StatusServiceUnavailable, "尚未安装 Python/PyTorch/CUDA 运行环境，请先在软件左下角下载并自动部署。")
+	return true
 }
 
 func withCommonHeaders(next http.Handler) http.Handler {

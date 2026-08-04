@@ -151,3 +151,52 @@ $env:MT_LICENSE_SECRET = "<private-secret>"
 ## 样例数据
 
 `data/samples/yolo` 里保留了 3 组最小样例图片和标签，覆盖 class `0`、class `1` 和双框场景。大模型文件、训练输出、授权文件和缓存不进入新项目。
+
+## 安装版、独立运行环境与 GitHub 更新
+
+从 `v0.3.0` 开始，Windows 安装版只包含 Electron、Go 后端和 Web 前端；约 4.6 GiB 的 Python/PyTorch/CUDA/LabelMe 运行环境独立发布，普通软件更新不再重复下载运行环境。
+
+首次启动时 Electron 主进程读取：
+
+```text
+https://raw.githubusercontent.com/GXICll-Dev/YOLO26ModelTraining-Runtime/main/runtime/latest.json
+```
+
+缺少运行环境时，界面左下角显示红色提示。用户点击后，程序会逐包下载 GitHub Release 附件、断点续传、验证 SHA-256、解压到临时目录、执行 Python/PyTorch/YOLO 冒烟测试，并在全部通过后原子切换到：
+
+```text
+%LOCALAPPDATA%\YOLO26ModelTrainingData\runtime\windows-x64-cuda126-py311
+```
+
+生成并验证 Runtime Release：
+
+```powershell
+npm run runtime:release
+npm run runtime:release:verify
+```
+
+生成带卸载入口的 Windows 安装包：
+
+```powershell
+npm run electron:installer
+```
+
+安装包输出到：
+
+```text
+out/installer/win32/x64/YOLO26ModelTraining-Setup-<version>.exe
+```
+
+发布前编辑 `RELEASE_NOTES.md`，然后执行：
+
+```powershell
+npm run release:app
+```
+
+运行环境版本独立发布：
+
+```powershell
+npm run release:runtime -- -RuntimeVersion 1.0.0
+```
+
+软件每次启动都会后台检查 `GXICll-Dev/YOLO26ModelTraining` 的最新 GitHub Release。发现高于当前版本的标签时，左下角版本号显示红点；用户可以在弹窗中查看 Release 内容、断点下载安装包、校验 SHA-256，然后重启安装。

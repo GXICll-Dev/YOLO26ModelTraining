@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { api, query } from "./api";
-import type { AutoAnnotateReport, ConvertReport, PredictionResult, PreflightReport, ProjectPaths, ProjectState, Task, TrainingConfig, TrainingResult, ValidationReport } from "./types";
+import type { AppUpdateStatus, AutoAnnotateReport, ConvertReport, PredictionResult, PreflightReport, ProjectPaths, ProjectState, RuntimeStatus, Task, TrainingConfig, TrainingResult, ValidationReport } from "./types";
 
 type Tab = "directory" | "logs" | "test" | "annotate";
 type LogScope = "main" | "predict";
@@ -19,8 +19,58 @@ declare global {
       chooseImageFiles?: () => Promise<string[]>;
       onToggleLayoutInspector?: (callback: () => void) => () => void;
     };
+    electronDesktop?: {
+      getAppVersion: () => Promise<string>;
+      runtime: {
+        getStatus: () => Promise<RuntimeStatus | null>;
+        refresh: () => Promise<RuntimeStatus | null>;
+        install: () => Promise<RuntimeStatus>;
+        cancel: () => Promise<boolean>;
+        onStatus: (callback: (status: RuntimeStatus) => void) => () => void;
+      };
+      update: {
+        getStatus: () => Promise<AppUpdateStatus | null>;
+        check: () => Promise<AppUpdateStatus | null>;
+        download: () => Promise<AppUpdateStatus>;
+        cancel: () => Promise<boolean>;
+        install: () => Promise<AppUpdateStatus>;
+        onStatus: (callback: (status: AppUpdateStatus) => void) => () => void;
+      };
+    };
   }
 }
+
+const browserRuntimeStatus: RuntimeStatus = {
+  phase: "ready",
+  ready: true,
+  source: "development",
+  runtimeId: "development",
+  localVersion: "development",
+  availableVersion: "",
+  runtimeRoot: "",
+  manifestURL: "",
+  downloadedBytes: 0,
+  totalBytes: 0,
+  percent: 100,
+  currentPackage: "",
+  message: "开发模式运行环境",
+  error: ""
+};
+
+const defaultUpdateStatus: AppUpdateStatus = {
+  phase: "idle",
+  currentVersion: "0.3.0",
+  latestVersion: "0.3.0",
+  updateAvailable: false,
+  releaseName: "",
+  releaseNotes: "",
+  publishedAt: "",
+  installerSize: 0,
+  downloadedBytes: 0,
+  percent: 0,
+  message: "",
+  error: ""
+};
 
 const defaultConfig: TrainingConfig = {
   version: 2,
@@ -109,6 +159,11 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState("0.3.0");
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
+  const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const classDialogInputRef = useRef<HTMLInputElement | null>(null);
   const testFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -136,6 +191,36 @@ export default function App() {
       predictEventSourceRef.current?.close();
       clearStoredTaskPolls();
       stopCamera();
+    };
+  }, []);
+
+  useEffect(() => {
+    const desktop = window.electronDesktop;
+    if (!desktop) return;
+    let active = true;
+    void desktop.getAppVersion().then((version) => {
+      if (active && version) setAppVersion(version);
+    });
+    void desktop.runtime.getStatus().then((status) => {
+      if (!active || !status) return;
+      setRuntimeStatus(status);
+      if (!status.ready && status.phase !== "checking") setRuntimeDialogOpen(true);
+    });
+    void desktop.update.getStatus().then((status) => {
+      if (active && status) setUpdateStatus(status);
+    });
+    const unsubscribeRuntime = desktop.runtime.onStatus((status) => {
+      if (!active) return;
+      setRuntimeStatus(status);
+      if (!status.ready && status.phase !== "checking") setRuntimeDialogOpen(true);
+    });
+    const unsubscribeUpdate = desktop.update.onStatus((status) => {
+      if (active) setUpdateStatus(status);
+    });
+    return () => {
+      active = false;
+      unsubscribeRuntime();
+      unsubscribeUpdate();
     };
   }, []);
 
@@ -214,6 +299,9 @@ export default function App() {
   const preflightErrors = preflight?.checks.filter((check) => check.level === "error") ?? [];
   const preflightWarnings = preflight?.checks.filter((check) => check.level === "warning") ?? [];
   const protectedTaskLabel = closeProtectionLabel(running, predicting);
+  const runtimeReady = runtimeStatus.ready;
+  const runtimeBusy = ["downloading", "verifying", "installing", "validating"].includes(runtimeStatus.phase);
+  const updateBusy = ["downloading", "verifying", "installing"].includes(updateStatus.phase);
 
   useEffect(() => {
     if (!autoModelTouchedRef.current && suggestedAutoModelPath) {
@@ -240,6 +328,68 @@ export default function App() {
       return undefined;
     } finally {
       setBusy(false);
+    }
+  }
+
+  function requireRuntime() {
+    if (runtimeReady) return true;
+    setRuntimeDialogOpen(true);
+    setMessage("请先下载并自动部署 Python/PyTorch/CUDA 运行环境。");
+    return false;
+  }
+
+  async function refreshRuntimeStatus() {
+    try {
+      const status = await window.electronDesktop?.runtime.refresh();
+      if (status) setRuntimeStatus(status);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function installRuntime() {
+    if (!window.electronDesktop) return;
+    setRuntimeDialogOpen(true);
+    try {
+      await window.electronDesktop.runtime.install();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function cancelRuntimeInstall() {
+    await window.electronDesktop?.runtime.cancel();
+  }
+
+  async function checkForUpdates() {
+    setUpdateDialogOpen(true);
+    try {
+      const status = await window.electronDesktop?.update.check();
+      if (status) setUpdateStatus(status);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function downloadUpdate() {
+    if (!window.electronDesktop) return;
+    try {
+      await window.electronDesktop.update.download();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function installUpdate() {
+    if (!window.electronDesktop) return;
+    if (running || predicting) {
+      const confirmed = window.confirm(`${protectedTaskLabel}，更新会关闭软件并中断当前任务。\n\n确定继续更新吗？`);
+      if (!confirmed) return;
+    }
+    try {
+      await window.electronDesktop.update.install();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -563,6 +713,7 @@ export default function App() {
   }
 
   async function checkTrainingPreflight(options?: { interactive?: boolean }) {
+    if (!requireRuntime()) return false;
     if (!project) {
       setMessage("请先设置项目根目录。");
       setTab("directory");
@@ -595,6 +746,7 @@ export default function App() {
   }
 
   async function startTraining() {
+    if (!requireRuntime()) return;
     if (!project) {
       setMessage("请先设置项目根目录。");
       setTab("directory");
@@ -703,6 +855,7 @@ export default function App() {
   }
 
   async function launchLabelMe() {
+    if (!requireRuntime()) return;
     if (!project) return;
     await runAction(() =>
       api<{ ok: boolean }>("/api/tools/labelme", {
@@ -714,6 +867,7 @@ export default function App() {
   }
 
   async function startAutoAnnotate() {
+    if (!requireRuntime()) return;
     const modelPath = autoModelPath.trim() || suggestedAutoModelPath;
     if (!modelPath) {
       setMessage("请先选择自动标注模型。");
@@ -773,6 +927,7 @@ export default function App() {
   }
 
   async function openAutoLabelMe() {
+    if (!requireRuntime()) return;
     if (!autoImageDir.trim() || !autoOutputDir.trim()) {
       setMessage("请先选择图片目录和 LabelMe 输出目录。");
       return;
@@ -853,6 +1008,7 @@ export default function App() {
   }
 
   async function startCamera() {
+    if (!requireRuntime()) return;
     if (!project) {
       setMessage("请先设置项目根目录。");
       setTab("directory");
@@ -887,6 +1043,7 @@ export default function App() {
   }
 
   async function uploadPredictBlob(blob: Blob, filename: string) {
+    if (!requireRuntime()) return;
     if (!project) {
       setMessage("请先设置项目根目录。");
       setTab("directory");
@@ -1171,7 +1328,7 @@ export default function App() {
                     }}
                     placeholder="选择项目根目录..."
                   />
-                  <button className="preflight-inline-button" onClick={() => void checkTrainingPreflight({ interactive: false })} disabled={!project || busy}>
+                  <button className="preflight-inline-button" onClick={() => void checkTrainingPreflight({ interactive: false })} disabled={!project || busy || !runtimeReady}>
                     启动前体检
                   </button>
                   <button onClick={browseProjectRoot} disabled={busy}>浏览...</button>
@@ -1233,7 +1390,7 @@ export default function App() {
 
               <GroupBox title="5. 辅助功能" className="directory-tools-box" layoutId="directory.tools">
                 <div className="tool-grid">
-                  <button className="tool green" onClick={launchLabelMe} disabled={!project || busy}>
+                  <button className="tool green" onClick={launchLabelMe} disabled={!project || busy || !runtimeReady}>
                     LabelMe
                   </button>
                   <button className="tool purple" onClick={() => void refreshProject()} disabled={!project || busy}>
@@ -1347,7 +1504,7 @@ export default function App() {
                 />
                 <div className="test-controls">
                   <div className="test-control-row">
-                    <button className="select-image-button" onClick={() => testFileInputRef.current?.click()} disabled={!project || predicting || busy}>
+                    <button className="select-image-button" onClick={() => testFileInputRef.current?.click()} disabled={!project || predicting || busy || !runtimeReady}>
                       选择图片测试
                     </button>
                     <button onClick={() => openPath(project?.paths.predictDir)} disabled={!project}>
@@ -1419,7 +1576,7 @@ export default function App() {
                 </div>
                 {cameraError && <div className="inline-error">{cameraError}</div>}
                 <div className="three-buttons">
-                  <button onClick={() => void startCamera()} disabled={!project || busy}>打开实时识别</button>
+                  <button onClick={() => void startCamera()} disabled={!project || busy || !runtimeReady}>打开实时识别</button>
                   <button onClick={stopCamera} disabled={!cameraStreamUrl}>停止摄像头</button>
                 </div>
               </GroupBox>
@@ -1523,7 +1680,7 @@ export default function App() {
                     </label>
                   </div>
                   <div className="auto-actions">
-                    <button className="big-action start" type="button" onClick={() => void startAutoAnnotate()} disabled={busy || running || predicting}>
+                    <button className="big-action start" type="button" onClick={() => void startAutoAnnotate()} disabled={busy || running || predicting || !runtimeReady}>
                       开始自动标注
                     </button>
                     <button type="button" onClick={() => void createAutoProject()} disabled={busy || running}>
@@ -1535,7 +1692,7 @@ export default function App() {
 
               <GroupBox title="辅助功能" className="auto-annotate-actions-box" layoutId="annotate.actions">
                 <div className="auto-next-actions">
-                  <button type="button" onClick={() => void openAutoLabelMe()} disabled={busy || !autoImageDir || !autoOutputDir}>
+                  <button type="button" onClick={() => void openAutoLabelMe()} disabled={busy || !autoImageDir || !autoOutputDir || !runtimeReady}>
                     LabelMe
                   </button>
                   <button type="button" onClick={() => openPath(autoOutputDir)} disabled={!autoOutputDir}>
@@ -1544,7 +1701,7 @@ export default function App() {
                   <button type="button" onClick={() => void convertAutoAnnotations()} disabled={!autoOutputDir || busy || running}>
                     标注转 YOLO
                   </button>
-                  <button className="big-action start" type="button" onClick={() => void startTraining()} disabled={!project || running || busy}>
+                  <button className="big-action start" type="button" onClick={() => void startTraining()} disabled={!project || running || busy || !runtimeReady}>
                     再次训练
                   </button>
                 </div>
@@ -1591,7 +1748,7 @@ export default function App() {
 
             {tab !== "test" && tab !== "annotate" && (
               <div className="bottom-actions" data-layout-id="common.actions" data-layout-label="底部操作按钮">
-                <button className="big-action start" onClick={startTraining} disabled={!project || running || busy}>
+                <button className="big-action start" onClick={startTraining} disabled={!project || running || busy || !runtimeReady}>
                   开始训练
                 </button>
                 <button className="big-action stop" onClick={cancelTask} disabled={!running}>
@@ -1604,7 +1761,30 @@ export default function App() {
             )}
 
             <div className="qt-status" data-layout-id="common.status" data-layout-label="底部状态栏">
-              <span>{message}</span>
+              <div className="status-left">
+                <button
+                  type="button"
+                  className={`version-status ${updateStatus.updateAvailable ? "has-update" : ""}`}
+                  title={updateStatus.updateAvailable ? `发现新版本 v${updateStatus.latestVersion}` : "点击检查软件更新"}
+                  onClick={() => {
+                    setUpdateDialogOpen(true);
+                    if (window.electronDesktop && updateStatus.phase === "idle" && !updateStatus.releaseName) void checkForUpdates();
+                  }}
+                >
+                  {updateStatus.updateAvailable && <span className="status-red-dot" aria-hidden="true" />}
+                  版本 v{appVersion}
+                </button>
+                <button
+                  type="button"
+                  className={`runtime-status ${runtimeReady ? "ready" : "missing"}`}
+                  title={runtimeStatus.message}
+                  onClick={() => setRuntimeDialogOpen(true)}
+                >
+                  {!runtimeReady && <span className="status-red-dot" aria-hidden="true" />}
+                  {runtimeReady ? "运行环境正常" : "运行环境未安装"}
+                </button>
+                <span className="status-message">{message}</span>
+              </div>
               <span>{logTask ? `当前任务: ${taskTypeLabel(logTask.type)} / ${taskStatusLabel(logTask.status)}` : ""}</span>
             </div>
           </section>
@@ -1628,8 +1808,157 @@ export default function App() {
             onClose={() => setParamsOpen(false)}
           />
         )}
+        {runtimeDialogOpen && (
+          <RuntimeInstallDialog
+            status={runtimeStatus}
+            busy={runtimeBusy}
+            onInstall={() => void installRuntime()}
+            onCancel={() => void cancelRuntimeInstall()}
+            onRefresh={() => void refreshRuntimeStatus()}
+            onClose={() => setRuntimeDialogOpen(false)}
+          />
+        )}
+        {updateDialogOpen && (
+          <AppUpdateDialog
+            status={updateStatus}
+            busy={updateBusy}
+            onCheck={() => void checkForUpdates()}
+            onDownload={() => void downloadUpdate()}
+            onInstall={() => void installUpdate()}
+            onCancel={() => void window.electronDesktop?.update.cancel()}
+            onClose={() => setUpdateDialogOpen(false)}
+          />
+        )}
         {layoutInspectorOpen && <LayoutInspector onClose={() => setLayoutInspectorOpen(false)} />}
       </div>
+    </div>
+  );
+}
+
+function RuntimeInstallDialog({
+  status,
+  busy,
+  onInstall,
+  onCancel,
+  onRefresh,
+  onClose
+}: {
+  status: RuntimeStatus;
+  busy: boolean;
+  onInstall: () => void;
+  onCancel: () => void;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const total = status.totalBytes || 0;
+  const downloaded = Math.min(status.downloadedBytes || 0, total || status.downloadedBytes || 0);
+  return (
+    <div className="modal-backdrop runtime-modal-backdrop" role="presentation">
+      <section className="desktop-modal runtime-modal" role="dialog" aria-modal="true" aria-label="运行环境管理">
+        <header>
+          <div>
+            <strong>{status.ready ? "运行环境" : "需要安装运行环境"}</strong>
+            <span>{status.availableVersion ? `环境版本 ${status.availableVersion}` : "Python / PyTorch / CUDA 12.6"}</span>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} disabled={status.phase === "installing" || status.phase === "validating"}>×</button>
+        </header>
+        <div className="modal-body">
+          <div className={`runtime-state-card ${status.ready ? "ok" : status.phase === "failed" ? "error" : "warning"}`}>
+            <strong>{status.message || (status.ready ? "运行环境已就绪。" : "尚未安装运行环境。")}</strong>
+            <span>软件会自动下载、校验并部署，用户不需要安装 Python、Conda 或 CUDA Toolkit。</span>
+          </div>
+          <div className="runtime-facts">
+            <div><span>环境标识</span><strong>{status.runtimeId || "windows-x64-cuda126-py311"}</strong></div>
+            <div><span>下载大小</span><strong>{total ? formatBytes(total) : "等待服务器清单"}</strong></div>
+            <div><span>本地版本</span><strong>{status.localVersion || "未安装"}</strong></div>
+          </div>
+          {(busy || status.percent > 0 && !status.ready) && (
+            <div className="desktop-download-progress">
+              <div><span>{status.currentPackage || status.message}</span><strong>{Math.max(0, Math.min(100, status.percent || 0))}%</strong></div>
+              <div className="progress-bar"><div style={{ width: `${Math.max(0, Math.min(100, status.percent || 0))}%` }} /></div>
+              <small>{total ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : status.message}</small>
+            </div>
+          )}
+          {status.error && <pre className="desktop-modal-error">{status.error}</pre>}
+          {!status.ready && <p className="runtime-space-hint">开始前请确保磁盘至少有约 10 GiB 可用空间。下载中断后可以继续，不会从头开始。</p>}
+        </div>
+        <footer>
+          <button type="button" onClick={onRefresh} disabled={busy}>重新检测</button>
+          {busy ? (
+            <button type="button" className="danger-action" onClick={onCancel}>取消下载</button>
+          ) : status.ready && !status.updateAvailable ? (
+            <button type="button" className="primary-action" onClick={onClose}>完成</button>
+          ) : (
+            <button type="button" className="primary-action" onClick={onInstall} disabled={!status.availableVersion}>
+              {status.updateAvailable ? "更新运行环境" : "下载并自动安装"}
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function AppUpdateDialog({
+  status,
+  busy,
+  onCheck,
+  onDownload,
+  onInstall,
+  onCancel,
+  onClose
+}: {
+  status: AppUpdateStatus;
+  busy: boolean;
+  onCheck: () => void;
+  onDownload: () => void;
+  onInstall: () => void;
+  onCancel: () => void;
+  onClose: () => void;
+}) {
+  const published = status.publishedAt ? new Date(status.publishedAt).toLocaleString("zh-CN") : "-";
+  return (
+    <div className="modal-backdrop update-modal-backdrop" role="presentation">
+      <section className="desktop-modal update-modal" role="dialog" aria-modal="true" aria-label="软件更新">
+        <header>
+          <div>
+            <strong>软件更新</strong>
+            <span>当前版本 v{status.currentVersion}</span>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} disabled={status.phase === "installing"}>×</button>
+        </header>
+        <div className="modal-body">
+          <div className={`update-version-card ${status.updateAvailable ? "available" : "current"}`}>
+            <span>{status.updateAvailable ? "发现新版本" : "当前版本"}</span>
+            <strong>v{status.latestVersion || status.currentVersion}</strong>
+            <small>发布时间：{published}</small>
+          </div>
+          <div className="release-notes">
+            <strong>更新内容</strong>
+            <pre>{status.releaseNotes || status.message || "点击“检查更新”获取 GitHub Release 更新内容。"}</pre>
+          </div>
+          {status.installerSize > 0 && <div className="installer-size">安装包大小：{formatBytes(status.installerSize)}</div>}
+          {busy && (
+            <div className="desktop-download-progress">
+              <div><span>{status.message}</span><strong>{status.percent}%</strong></div>
+              <div className="progress-bar"><div style={{ width: `${status.percent}%` }} /></div>
+              <small>{status.installerSize ? `${formatBytes(status.downloadedBytes)} / ${formatBytes(status.installerSize)}` : ""}</small>
+            </div>
+          )}
+          {status.error && <pre className="desktop-modal-error">{status.error}</pre>}
+        </div>
+        <footer>
+          <button type="button" onClick={onCheck} disabled={busy}>检查更新</button>
+          {busy && status.phase === "downloading" && <button type="button" className="danger-action" onClick={onCancel}>取消下载</button>}
+          {status.phase === "downloaded" ? (
+            <button type="button" className="primary-action" onClick={onInstall}>重启并安装</button>
+          ) : status.updateAvailable ? (
+            <button type="button" className="primary-action" onClick={onDownload} disabled={busy}>立即下载</button>
+          ) : (
+            <button type="button" className="primary-action" onClick={onClose}>关闭</button>
+          )}
+        </footer>
+      </section>
     </div>
   );
 }

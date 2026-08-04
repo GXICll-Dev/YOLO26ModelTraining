@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const coreOnly = process.env.MT_CORE_ONLY === "1";
 
 function removePythonBytecode(root) {
   if (!fs.existsSync(root)) {
@@ -45,10 +46,12 @@ module.exports = {
       path.resolve(__dirname, "bin"),
       path.resolve(__dirname, "web", "dist"),
       path.resolve(__dirname, "data"),
-      path.resolve(__dirname, "runtime", "python"),
-      path.resolve(__dirname, "runtime", "models"),
-      path.resolve(__dirname, "runtime", "runtime-manifest.json"),
-      path.resolve(__dirname, "tools")
+      ...(!coreOnly ? [
+        path.resolve(__dirname, "runtime", "python"),
+        path.resolve(__dirname, "runtime", "models"),
+        path.resolve(__dirname, "runtime", "runtime-manifest.json"),
+        path.resolve(__dirname, "tools")
+      ] : [])
     ],
     ignore: [
       /^\/cmd($|\/)/,
@@ -63,6 +66,7 @@ module.exports = {
       /^\/state($|\/)/,
       /^\/output($|\/)/,
       /^\/out($|\/)/,
+      /^\/artifacts($|\/)/,
       /^\/\.cache($|\/)/,
       /^\/electron-cache($|\/)/,
       /^\/\.playwright-cli($|\/)/,
@@ -74,13 +78,15 @@ module.exports = {
   hooks: {
     postPackage: async (_forgeConfig, packageResult) => {
       const source = path.resolve(__dirname, "runtime", "python", "CONCRT140.dll");
-      if (!fs.existsSync(source)) {
+      if (!coreOnly && !fs.existsSync(source)) {
         throw new Error(`Pinned app-local CONCRT140.dll is missing: ${source}`);
       }
       for (const outputPath of packageResult.outputPaths) {
-        const target = path.join(outputPath, "resources", "tools", "labelme", "_internal", "CONCRT140.dll");
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.copyFileSync(source, target);
+        if (!coreOnly) {
+          const target = path.join(outputPath, "resources", "tools", "labelme", "_internal", "CONCRT140.dll");
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.copyFileSync(source, target);
+        }
         removePythonBytecode(path.join(outputPath, "resources", "python"));
         removePythonBytecode(path.join(outputPath, "resources", "tools"));
       }

@@ -75,6 +75,16 @@ func TestNewRunnerIgnoresLegacyPythonCommandEnvironment(t *testing.T) {
 	}
 }
 
+func TestNewRunnerDoesNotFallBackToHostPythonWhenManagedRuntimeIsMissing(t *testing.T) {
+	t.Setenv("MT_MANAGED_RUNTIME_REQUIRED", "1")
+	t.Setenv("MT_PYTHON_CMD", "")
+	t.Setenv("YOLO_CMD", "")
+	runner := NewRunner()
+	if runner.PythonCommand != "" || runner.YOLOCommand != "" {
+		t.Fatalf("managed release must not use host Python when runtime is missing: %#v", runner)
+	}
+}
+
 func TestResolveUltralyticsDirSuppressesAutomaticSearchForConfiguredPython(t *testing.T) {
 	legacySource := t.TempDir()
 	if got := resolveUltralyticsDir("", true, legacySource); got != "" {
