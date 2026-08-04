@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { api, query } from "./api";
 import type { AppUpdateStatus, AutoAnnotateReport, ConvertReport, PredictionResult, PreflightReport, ProjectPaths, ProjectState, RuntimeStatus, Task, TrainingConfig, TrainingResult, ValidationReport } from "./types";
 
@@ -59,8 +61,8 @@ const browserRuntimeStatus: RuntimeStatus = {
 
 const defaultUpdateStatus: AppUpdateStatus = {
   phase: "idle",
-  currentVersion: "0.3.3",
-  latestVersion: "0.3.3",
+  currentVersion: "0.3.4",
+  latestVersion: "0.3.4",
   updateAvailable: false,
   releaseName: "",
   releaseNotes: "",
@@ -159,7 +161,7 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.3.3");
+  const [appVersion, setAppVersion] = useState("0.3.4");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);
@@ -1932,7 +1934,16 @@ function AppUpdateDialog({
           </div>
           <div className="release-notes">
             <strong>更新内容</strong>
-            <pre>{status.releaseNotes || status.message || "点击“检查更新”获取 GitHub Release 更新内容。"}</pre>
+            <div className="release-notes-markdown">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />
+                }}
+              >
+                {status.releaseNotes || status.message || "点击“检查更新”获取 GitHub Release 更新内容。"}
+              </ReactMarkdown>
+            </div>
           </div>
           {status.installerSize > 0 && <div className="installer-size">安装包大小：{formatBytes(status.installerSize)}</div>}
           {busy && (

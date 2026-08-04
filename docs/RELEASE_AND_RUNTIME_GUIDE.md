@@ -4,7 +4,7 @@
 
 文档创建时的已发布版本：
 
-- 应用：`v0.3.3`
+- 应用：`v0.3.4`
 - Runtime：`runtime-v1.0.0`
 - 应用仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining>
 - Runtime 仓库：<https://github.com/GXICll-Dev/YOLO26ModelTraining-Runtime>
@@ -195,6 +195,8 @@ rg -n '"version"|currentVersion|latestVersion|useState\("[0-9]' package.json pac
 ```
 
 更新弹窗会直接显示 GitHub Release 的正文，因此不要写内部密钥、私人路径、用户数据或无关调试信息。
+
+更新内容使用 `react-markdown` 和 `remark-gfm` 按 GitHub 风格 Markdown 渲染，支持标题、列表、任务列表、表格、链接、图片、引用和代码块。原始 HTML 默认不解析，发布说明不能依赖嵌入式 HTML 标签。
 
 ### 4.4 执行测试
 

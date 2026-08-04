@@ -2443,7 +2443,7 @@ p {
   gap: 7px;
 }
 
-.release-notes pre {
+.release-notes-markdown {
   min-height: 130px;
   max-height: 260px;
   overflow: auto;
@@ -2454,8 +2454,125 @@ p {
   color: #343a46;
   padding: 11px 12px;
   font: 13px/1.6 "Microsoft YaHei", sans-serif;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.release-notes-markdown > :first-child {
+  margin-top: 0;
+}
+
+.release-notes-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.release-notes-markdown h1,
+.release-notes-markdown h2,
+.release-notes-markdown h3,
+.release-notes-markdown h4 {
+  margin: 14px 0 7px;
+  color: #172032;
+  line-height: 1.35;
+}
+
+.release-notes-markdown h1 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid #dfe3e9;
+  font-size: 20px;
+}
+
+.release-notes-markdown h2 {
+  font-size: 17px;
+}
+
+.release-notes-markdown h3,
+.release-notes-markdown h4 {
+  font-size: 14px;
+}
+
+.release-notes-markdown p,
+.release-notes-markdown ul,
+.release-notes-markdown ol,
+.release-notes-markdown blockquote,
+.release-notes-markdown table,
+.release-notes-markdown pre {
+  margin: 8px 0;
+}
+
+.release-notes-markdown ul,
+.release-notes-markdown ol {
+  padding-left: 24px;
+}
+
+.release-notes-markdown li + li {
+  margin-top: 3px;
+}
+
+.release-notes-markdown a {
+  color: #075fc7;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.release-notes-markdown blockquote {
+  padding: 4px 10px;
+  border-left: 3px solid #9db8dc;
+  background: #f1f5fa;
+  color: #586273;
+}
+
+.release-notes-markdown code {
+  border-radius: 4px;
+  background: #edf0f4;
+  padding: 1px 4px;
+  font: 12px/1.5 "SF Mono", Consolas, monospace;
+}
+
+.release-notes-markdown pre {
+  overflow-x: auto;
+  border-radius: 7px;
+  background: #202630;
+  color: #f4f6f8;
+  padding: 9px 10px;
+}
+
+.release-notes-markdown pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.release-notes-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.release-notes-markdown th,
+.release-notes-markdown td {
+  border: 1px solid #d7dce4;
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.release-notes-markdown th {
+  background: #eef2f7;
+}
+
+.release-notes-markdown hr {
+  height: 1px;
+  margin: 12px 0;
+  border: 0;
+  background: #dfe3e9;
+}
+
+.release-notes-markdown img {
+  max-width: 100%;
+}
+
+.release-notes-markdown input[type="checkbox"] {
+  margin-right: 5px;
 }
 
 .class-dialog {
