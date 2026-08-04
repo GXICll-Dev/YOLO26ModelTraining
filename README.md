@@ -2,6 +2,8 @@
 
 这是对原 Python/PyQt 训练工具的 Go + TypeScript 重构版本，当前默认适配 Ultralytics YOLO26。原项目目录不会被修改；新项目把职责拆成：
 
+应用更新、Windows 安装包和独立 Runtime 仓库的完整维护流程见 [`docs/RELEASE_AND_RUNTIME_GUIDE.md`](docs/RELEASE_AND_RUNTIME_GUIDE.md)。AI 工具应从根目录 [`CLAUDE.md`](CLAUDE.md) 读取并通过 `@` 引用加载相关上下文。
+
 - Go 本地服务：项目目录、类别文件、`mydata.yaml`、VOC XML 转 YOLO、标签校验、训练任务、日志流、授权状态。
 - TypeScript 前端：目录管理、类别编辑、图片导入、工具调用、训练参数、任务日志和结果展示。
 - YOLO26 训练：桌面发行包固定使用随包附带的 Python、Ultralytics 和 CUDA Torch；有兼容 NVIDIA GPU 时自动使用 CUDA，否则回退 CPU。Go 负责结构化编排和日志追踪，源码开发模式仍可通过环境变量显式指定运行时。
