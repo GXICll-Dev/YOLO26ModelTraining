@@ -1099,13 +1099,43 @@ func (s *Server) buildPreflightReport(mode, rootPath, modelPath, imagePath, devi
 	}
 
 	modelLevel := "warning"
+	resolvedModel := ""
 	if mode == "train" || mode == "predict" {
 		modelLevel = "error"
 	}
 	if resolved, err := s.resolvePreflightModel(root, modelPath); err != nil {
 		add("model", "YOLO26模型", modelLevel, "模型文件不可用", err.Error())
 	} else {
+		resolvedModel = resolved
 		add("model", "YOLO26模型", "ok", resolved, "")
+	}
+
+	if mode == "train" && imageErr == nil && len(images) > 0 {
+		validation, err := dataset.ValidateLabels(root)
+		if err != nil {
+			add("label-content", "标签内容", "error", "标签内容检查失败", err.Error())
+		} else {
+			invalidCount := len(validation.InvalidLabels)
+			if invalidCount > 0 {
+				add("label-content", "标签内容", "error", fmt.Sprintf("%d 个标签文件含非法或越界坐标", invalidCount), "请修正标签；坐标必须归一化到 0..1，非法样本会被 YOLO 忽略。")
+			} else {
+				add("label-content", "标签内容", "ok", fmt.Sprintf("%d 个标签文件通过格式与坐标检查", validation.ValidLabels), "")
+			}
+
+			modelForTask := resolvedModel
+			if strings.TrimSpace(modelForTask) == "" {
+				modelForTask = modelPath
+			}
+			task := training.InferModelTask(modelForTask)
+			switch {
+			case task == "segment" && validation.DetectionAnnotations > 0:
+				add("label-task", "标签任务类型", "error", fmt.Sprintf("分割数据中混入 %d 条仅检测框标签", validation.DetectionAnnotations), "分割模型要求每个目标都有至少 3 个多边形点；混合标签会在 DataLoader 阶段崩溃。")
+			case task != "segment" && validation.SegmentationAnnotations > 0:
+				add("label-task", "标签任务类型", "error", fmt.Sprintf("检测模型不能直接训练 %d 条分割多边形标签", validation.SegmentationAnnotations), "请选择 *-seg.pt 分割模型，或将标签转换成检测框格式。")
+			default:
+				add("label-task", "标签任务类型", "ok", fmt.Sprintf("模型任务 %s 与标签格式一致", task), "")
+			}
+		}
 	}
 
 	if _, err := exec.LookPath(s.training.YOLOCommand); err != nil {

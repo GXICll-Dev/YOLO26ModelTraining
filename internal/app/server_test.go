@@ -568,6 +568,42 @@ func TestProjectPreflightWarnsMirroredValidationSplit(t *testing.T) {
 	}
 }
 
+func TestProjectPreflightBlocksMixedAndOutOfRangeSegmentationLabels(t *testing.T) {
+	server := newTestServer(t)
+	root, _ := createPreflightTrainingProject(t)
+	paths := dataset.Paths(root)
+	if err := os.MkdirAll(paths.LabelsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modelPath := filepath.Join(root, "yolo26l-seg.pt")
+	if err := os.WriteFile(modelPath, []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	label := "0 0.5 0.5 0.2 0.2\n0 0.1 0.1 1.2 0.1 0.5 0.5\n"
+	if err := os.WriteFile(filepath.Join(paths.LabelsDir, "sample.txt"), []byte(label), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"mode": "train", "rootPath": root, "modelPath": modelPath, "device": "cpu", "imageSize": 640,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/projects/preflight", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.Routes().ServeHTTP(rec, req)
+
+	var report dataset.PreflightReport
+	if err := json.Unmarshal(rec.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Ready || !hasCheck(report, "label-content", "error") || !hasCheck(report, "label-task", "error") {
+		t.Fatalf("expected label blockers: %+v", report.Checks)
+	}
+}
+
 func TestExportDiagnosticsWritesReport(t *testing.T) {
 	t.Setenv("MT_STATE_DIR", t.TempDir())
 	server := newTestServer(t)

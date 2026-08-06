@@ -285,12 +285,14 @@ type ConvertReport struct {
 }
 
 type ValidationReport struct {
-	ImageCount    int                 `json:"imageCount"`
-	LabelCount    int                 `json:"labelCount"`
-	ValidLabels   int                 `json:"validLabels"`
-	TotalBoxes    int                 `json:"totalBoxes"`
-	MissingLabels []string            `json:"missingLabels"`
-	EmptyLabels   []string            `json:"emptyLabels"`
-	InvalidLabels map[string][]string `json:"invalidLabels"`
-	ClassCounts   map[string]int      `json:"classCounts"`
+	ImageCount              int                 `json:"imageCount"`
+	LabelCount              int                 `json:"labelCount"`
+	ValidLabels             int                 `json:"validLabels"`
+	TotalBoxes              int                 `json:"totalBoxes"`
+	DetectionAnnotations    int                 `json:"detectionAnnotations"`
+	SegmentationAnnotations int                 `json:"segmentationAnnotations"`
+	MissingLabels           []string            `json:"missingLabels"`
+	EmptyLabels             []string            `json:"emptyLabels"`
+	InvalidLabels           map[string][]string `json:"invalidLabels"`
+	ClassCounts             map[string]int      `json:"classCounts"`
 }

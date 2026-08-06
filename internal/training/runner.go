@@ -56,6 +56,10 @@ func NewRunner() Runner {
 	configuredUltralytics := strings.TrimSpace(os.Getenv("ULTRALYTICS_DIR"))
 	ultralyticsDir := resolveUltralyticsDir(configuredUltralytics, configuredPython != "", defaultUltralyticsDirCandidates()...)
 	pythonCommand := resolvePythonCommand(os.Getenv("MT_PYTHON_CMD"), exec.LookPath)
+	modelDirs := modelSearchDirs(ultralyticsDir)
+	if filepath.IsAbs(pythonCommand) {
+		modelDirs = appendUniqueDir(modelDirs, filepath.Join(filepath.Dir(filepath.Dir(pythonCommand)), "models"))
+	}
 	// Prefer the Python entrypoint whenever Python is available so automatic
 	// device selection runs inside the same train/predict process. YOLO_CMD
 	// remains an explicit source-development escape hatch.
@@ -66,7 +70,7 @@ func NewRunner() Runner {
 		PythonCommand:   pythonCommand,
 		IsolatedPython:  configuredPython != "" && configuredUltralytics == "",
 		UltralyticsDir:  ultralyticsDir,
-		ModelDirs:       modelSearchDirs(ultralyticsDir),
+		ModelDirs:       modelDirs,
 	}
 }
 
@@ -428,7 +432,7 @@ func validatePredictionConfig(cfg dataset.PredictionConfig) error {
 
 func buildYOLOArgs(yamlPath, runsDir, model string, cfg dataset.TrainingConfig) []string {
 	args := []string{
-		"detect", "train",
+		InferModelTask(model), "train",
 		"data=" + yamlPath,
 		"model=" + model,
 		"epochs=" + strconv.Itoa(cfg.Epochs),
@@ -473,7 +477,7 @@ func buildYOLOPredictArgs(model, sourceImage, predictDir, runName string, cfg da
 		cfg.Confidence = 0.25
 	}
 	args := []string{
-		"detect", "predict",
+		InferModelTask(model), "predict",
 		"model=" + model,
 		"source=" + sourceImage,
 		"imgsz=" + strconv.Itoa(cfg.ImageSize),
@@ -501,6 +505,7 @@ func scanPipe(wg *sync.WaitGroup, pipe any, task *tasks.Task, totalEpochs int, s
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	scanner.Split(splitConsoleLines)
+	seenSummaries := map[string]bool{}
 	for scanner.Scan() {
 		line := stripANSI(scanner.Text())
 		if strings.TrimSpace(line) == "" {
@@ -512,13 +517,15 @@ func scanPipe(wg *sync.WaitGroup, pipe any, task *tasks.Task, totalEpochs int, s
 		task.Log(pythonStreamLog(stream, line))
 		if progress := parseProgress(line, totalEpochs); progress >= 0 {
 			task.SetProgress(progress)
-			if localized := localizedYOLOLog(line, totalEpochs, progress); localized != "" {
+			if localized := localizedYOLOLog(line, totalEpochs, progress); localized != "" && !seenSummaries[localized] {
 				task.Log("[YOLO 摘要] " + localized)
+				seenSummaries[localized] = true
 			}
 			continue
 		}
-		if localized := localizedYOLOLog(line, totalEpochs, -1); localized != "" {
+		if localized := localizedYOLOLog(line, totalEpochs, -1); localized != "" && !seenSummaries[localized] {
 			task.Log("[YOLO 摘要] " + localized)
+			seenSummaries[localized] = true
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -614,15 +621,17 @@ func localizedYOLOLog(line string, totalEpochs int, progress int) string {
 		return resolved
 	}
 	switch {
-	case strings.Contains(lower, "traceback") || strings.Contains(lower, "exception") || strings.Contains(lower, "error"):
+	case strings.Contains(lower, "ignoring corrupt image/label") || strings.Contains(lower, "non-normalized or out of bounds coordinates"):
+		return "YOLO 发现越界或损坏标签，已忽略对应样本。"
+	case yoloErrorPattern.MatchString(lower):
 		return "YOLO 运行时出现错误，请检查模型路径、图片格式、显卡环境和依赖安装。"
-	case strings.Contains(lower, "warning"):
+	case yoloWarningPattern.MatchString(lower):
 		return "YOLO 给出提醒，建议检查数据集、模型文件或运行环境。"
 	case strings.Contains(lower, "results saved to"):
 		return "YOLO 结果已保存到输出目录。"
 	case strings.Contains(lower, "speed:"):
 		return "YOLO 速度统计已生成。"
-	case strings.Contains(lower, "image ") && strings.Contains(lower, "/"):
+	case yoloPredictionImagePattern.MatchString(lower):
 		return "YOLO 正在处理测试图片。"
 	case strings.Contains(lower, "epoch"):
 		return "YOLO 正在准备训练轮次。"
@@ -652,6 +661,27 @@ func localizedDeviceResolutionLog(line string) string {
 
 var epochPattern = regexp.MustCompile(`(?i)\b(\d+)\s*/\s*(\d+)\b`)
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+var yoloErrorPattern = regexp.MustCompile(`(?i)(^|[^a-z])(traceback|exception|[a-z]*error|fatal|failed)([^a-z]|$)`)
+var yoloWarningPattern = regexp.MustCompile(`(?i)(^|[^a-z])warnings?([^a-z]|$)`)
+var yoloPredictionImagePattern = regexp.MustCompile(`(?i)^image\s+\d+/\d+\s`)
+
+// InferModelTask selects the Ultralytics CLI task from conventional model
+// names so segmentation weights are not launched through "detect" first.
+func InferModelTask(model string) string {
+	name := strings.ToLower(filepath.Base(strings.TrimSpace(model)))
+	switch {
+	case strings.Contains(name, "-seg") || strings.Contains(name, "_seg"):
+		return "segment"
+	case strings.Contains(name, "-pose") || strings.Contains(name, "_pose"):
+		return "pose"
+	case strings.Contains(name, "-obb") || strings.Contains(name, "_obb"):
+		return "obb"
+	case strings.Contains(name, "-cls") || strings.Contains(name, "_cls"):
+		return "classify"
+	default:
+		return "detect"
+	}
+}
 
 func stripANSI(value string) string {
 	return ansiPattern.ReplaceAllString(value, "")
@@ -1251,6 +1281,17 @@ func appendUniqueDir(dirs []string, dir string) []string {
 
 func (r Runner) commandEnv() []string {
 	env := os.Environ()
+	env = setEnv(env, "PYTHONUTF8", "1")
+	env = setEnv(env, "PYTHONIOENCODING", "utf-8:backslashreplace")
+	if strings.TrimSpace(os.Getenv("YOLO_MODEL_PATH")) == "" {
+		for _, dir := range r.ModelDirs {
+			candidate := filepath.Join(dir, dataset.DefaultYOLO26WeightName)
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Size() > 0 {
+				env = setEnv(env, "YOLO_MODEL_PATH", candidate)
+				break
+			}
+		}
+	}
 	if r.IsolatedPython {
 		env = setEnv(env, "PYTHONPATH", "")
 	}

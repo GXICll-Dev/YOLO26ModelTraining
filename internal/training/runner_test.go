@@ -2,6 +2,7 @@ package training
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -22,6 +23,10 @@ func TestNewRunnerUsesModelTrainingPythonForYOLO(t *testing.T) {
 	runner := NewRunner()
 	if runner.PythonCommand != python {
 		t.Fatalf("PythonCommand = %q, want %q", runner.PythonCommand, python)
+	}
+	wantModelDir := filepath.Join(filepath.Dir(filepath.Dir(python)), "models")
+	if !containsStringFold(runner.ModelDirs, wantModelDir) {
+		t.Fatalf("ModelDirs = %#v, want runtime model dir %q", runner.ModelDirs, wantModelDir)
 	}
 	if runner.YOLOCommand != python {
 		t.Fatalf("YOLOCommand = %q, want %q", runner.YOLOCommand, python)
@@ -211,6 +216,28 @@ func TestScanPipePreservesRawPythonLogsAndAddsSummary(t *testing.T) {
 	}
 }
 
+func TestScanPipeDeduplicatesGenericWarningsAndErrors(t *testing.T) {
+	task := tasks.NewManager().Create("train", t.TempDir())
+	input := strings.NewReader("WARNING first\nWARNING second\nTraceback (most recent call last):\nRuntimeError: failed\nOriginal Traceback (most recent call last):\n")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go scanPipe(&wg, input, task, 1, "stderr", newRecentLineBuffer(10))
+	wg.Wait()
+
+	var messages []string
+	for _, entry := range task.Snapshot().Logs {
+		messages = append(messages, entry.Message)
+	}
+	joined := strings.Join(messages, "\n")
+	if got := strings.Count(joined, "[YOLO 摘要] YOLO 给出提醒"); got != 1 {
+		t.Fatalf("warning summaries = %d, logs:\n%s", got, joined)
+	}
+	if got := strings.Count(joined, "[YOLO 摘要] YOLO 运行时出现错误"); got != 1 {
+		t.Fatalf("error summaries = %d, logs:\n%s", got, joined)
+	}
+}
+
 func TestDetailedProcessErrorIncludesBoundedStderrTail(t *testing.T) {
 	stderrTail := newRecentLineBuffer(2)
 	stderrTail.Add("first")
@@ -247,6 +274,53 @@ func TestExplicitDeviceIsPreserved(t *testing.T) {
 		if !containsExactArgument(args, "device="+device) {
 			t.Fatalf("training args for %q = %#v", device, args)
 		}
+	}
+}
+
+func TestInferModelTaskUsesWeightName(t *testing.T) {
+	tests := map[string]string{
+		"yolo26n.pt":        "detect",
+		"yolo26l-seg.pt":    "segment",
+		"custom_pose.pt":    "pose",
+		"inspection-obb.pt": "obb",
+		"parts-cls.pt":      "classify",
+	}
+	for model, want := range tests {
+		if got := InferModelTask(model); got != want {
+			t.Errorf("InferModelTask(%q) = %q, want %q", model, got, want)
+		}
+	}
+}
+
+func TestLocalizedYOLOLogDoesNotTreatImageAccessAsPrediction(t *testing.T) {
+	if got := localizedYOLOLog("train: Fast image access (read: 3000 MB/s)", 0, -1); got != "" {
+		t.Fatalf("image access log was misclassified: %q", got)
+	}
+	if got := localizedYOLOLog("image 1/2 sample.jpg: 640x640", 0, -1); !strings.Contains(got, "测试图片") {
+		t.Fatalf("prediction progress was not classified: %q", got)
+	}
+}
+
+func TestCommandEnvironmentForcesUTF8PythonStreams(t *testing.T) {
+	env := (Runner{}).CommandEnvironment()
+	joined := strings.Join(env, "\n")
+	for _, expected := range []string{"PYTHONUTF8=1", "PYTHONIOENCODING=utf-8:backslashreplace"} {
+		if !strings.Contains(strings.ToLower(joined), strings.ToLower(expected)) {
+			t.Fatalf("environment does not contain %q", expected)
+		}
+	}
+}
+
+func TestCommandEnvironmentPointsAMPCheckAtBundledModel(t *testing.T) {
+	modelDir := t.TempDir()
+	modelPath := filepath.Join(modelDir, dataset.DefaultYOLO26WeightName)
+	if err := os.WriteFile(modelPath, []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YOLO_MODEL_PATH", "")
+	env := (Runner{ModelDirs: []string{modelDir}}).CommandEnvironment()
+	if !strings.Contains(strings.Join(env, "\n"), "YOLO_MODEL_PATH="+modelPath) {
+		t.Fatalf("bundled AMP model path missing from environment")
 	}
 }
 
@@ -370,6 +444,15 @@ func fakeLookPath(found ...string) func(string) (string, error) {
 		}
 		return "", errors.New("not found")
 	}
+}
+
+func containsStringFold(values []string, want string) bool {
+	for _, value := range values {
+		if strings.EqualFold(filepath.Clean(value), filepath.Clean(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 func environmentValue(env []string, key string) string {
