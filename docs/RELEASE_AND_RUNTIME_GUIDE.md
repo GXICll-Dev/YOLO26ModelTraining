@@ -571,7 +571,7 @@ foreach ($package in $manifest.packages) {
 - 检查磁盘空间；
 - 下载 `.part` 文件并使用 HTTP Range 续传；
 - 每包下载完成后验证 SHA-256；
-- 解压到 `.staging-<runtimeId>-<timestamp>`；
+- Windows 使用独立的系统 `tar.exe` 进程解压到 `.staging-<runtimeId>-<timestamp>`，支持取消和超时；
 - 校验关键文件并运行 Python/PyTorch/YOLO 冒烟测试；
 - 写入 `installed-runtime.json`；
 - 先备份旧 Runtime，再原子切换新目录；

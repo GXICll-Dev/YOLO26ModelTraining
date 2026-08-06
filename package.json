@@ -1,6 +1,6 @@
 {
   "name": "modeltraining-yolo26-desktop",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "productName": "基于YOLO26的铝型方管缺陷智能分类检测系统",
   "description": "基于YOLO26的铝型方管缺陷智能分类检测系统",
   "main": "electron/main.cjs",

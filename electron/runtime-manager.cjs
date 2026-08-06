@@ -10,6 +10,7 @@ const DEFAULT_RUNTIME_ID = "windows-x64-cuda126-py311";
 const DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/GXICll-Dev/YOLO26ModelTraining-Runtime/main/runtime/latest.json";
 const INSTALL_MARKER = "installed-runtime.json";
 const MINIMUM_FREE_BYTES = 10 * 1024 * 1024 * 1024;
+const ARCHIVE_EXTRACTION_TIMEOUT_MS = 30 * 60 * 1000;
 
 function safeRuntimeId(value) {
   const normalized = String(value || "").trim();
@@ -137,27 +138,59 @@ function waitForProcess(command, args, options = {}) {
     child.stdout.on("data", (chunk) => stdout.push(chunk));
     child.stderr.on("data", (chunk) => stderr.push(chunk));
     let timedOut = false;
+    let aborted = false;
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      callback(value);
+    };
+    const onAbort = () => {
+      aborted = true;
+      child.kill();
+    };
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill();
     }, options.timeoutMs || 120000);
+    if (options.signal?.aborted) onAbort();
+    else options.signal?.addEventListener("abort", onAbort, { once: true });
     child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
+      finish(reject, error);
     });
     child.once("exit", (code, signal) => {
-      clearTimeout(timer);
       const output = Buffer.concat(stdout).toString("utf8").trim();
       const errorOutput = Buffer.concat(stderr).toString("utf8").trim();
-      if (timedOut) {
-        reject(new Error("运行环境验证超时。"));
+      if (aborted) {
+        finish(reject, new Error(options.abortMessage || "运行环境部署已取消。"));
+      } else if (timedOut) {
+        finish(reject, new Error(options.timeoutMessage || "运行环境验证超时。"));
       } else if (code !== 0) {
-        reject(new Error(errorOutput || output || `运行环境验证失败，code=${code ?? ""} signal=${signal ?? ""}`));
+        finish(reject, new Error(errorOutput || output || `运行环境验证失败，code=${code ?? ""} signal=${signal ?? ""}`));
       } else {
-        resolve({ stdout: output, stderr: errorOutput });
+        finish(resolve, { stdout: output, stderr: errorOutput });
       }
     });
   });
+}
+
+async function extractRuntimeArchive(archive, destination, options = {}) {
+  if (process.platform === "win32") {
+    const systemRoot = process.env.SystemRoot || process.env.WINDIR || "C:\\Windows";
+    const tar = path.join(systemRoot, "System32", "tar.exe");
+    if (isNonEmptyFile(tar)) {
+      await waitForProcess(tar, ["-xf", archive, "-C", destination], {
+        signal: options.signal,
+        timeoutMs: options.timeoutMs || ARCHIVE_EXTRACTION_TIMEOUT_MS,
+        abortMessage: "运行环解压已取消。",
+        timeoutMessage: `解压 ${path.basename(archive)} 超时，请重试或检查安全软件。`
+      });
+      return;
+    }
+  }
+  await extract(archive, { dir: destination });
 }
 
 async function probeRuntime(root) {
@@ -288,6 +321,20 @@ class RuntimeManager extends EventEmitter {
     }
   }
 
+  async clearStagingDirectories(runtimeId) {
+    const prefix = `.staging-${safeRuntimeId(runtimeId)}-`;
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(this.runtimeBase, { withFileTypes: true });
+    } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    await Promise.all(entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(prefix))
+      .map((entry) => removeDirectory(path.join(this.runtimeBase, entry.name))));
+  }
+
   async refresh(options = {}) {
     const local = this.findReadyRoot();
     if (local) {
@@ -407,8 +454,8 @@ class RuntimeManager extends EventEmitter {
         completedBytes += item.size;
       }
 
+      await this.clearStagingDirectories(manifest.runtimeId);
       const staging = path.join(this.runtimeBase, `.staging-${manifest.runtimeId}-${Date.now()}`);
-      await removeDirectory(staging);
       await fs.promises.mkdir(staging, { recursive: true });
       try {
         for (let index = 0; index < archives.length; index += 1) {
@@ -417,10 +464,10 @@ class RuntimeManager extends EventEmitter {
           this.emitState({
             phase: "installing",
             currentPackage: path.basename(archive),
-            percent: Math.round((index / archives.length) * 100),
+            percent: 95 + Math.floor((index / archives.length) * 4),
             message: `正在解压部署 ${index + 1}/${archives.length}...`
           });
-          await extract(archive, { dir: staging });
+          await extractRuntimeArchive(archive, staging, { signal });
         }
 
         this.emitState({ phase: "validating", percent: 96, currentPackage: "", message: "正在验证 Python、PyTorch 和 YOLO..." });
@@ -576,6 +623,7 @@ module.exports = {
   DEFAULT_MANIFEST_URL,
   DEFAULT_RUNTIME_ID,
   RuntimeManager,
+  extractRuntimeArchive,
   normalizeManifest,
   probeRuntime,
   runtimeFilesReady,

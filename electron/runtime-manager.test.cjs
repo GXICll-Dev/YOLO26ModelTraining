@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
-const { RuntimeManager, normalizeManifest, runtimeFilesReady, safeRelativePath, safeRuntimeId } = require("./runtime-manager.cjs");
+const { RuntimeManager, extractRuntimeArchive, normalizeManifest, runtimeFilesReady, safeRelativePath, safeRuntimeId } = require("./runtime-manager.cjs");
 
 test("normalizes a versioned multi-package runtime manifest", () => {
   const manifest = normalizeManifest({
@@ -58,6 +58,34 @@ test("stores managed runtime under the application root and removes deployed arc
     await manager.clearDownloadCache();
 
     assert.equal(fs.existsSync(path.join(root, "downloads")), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("removes incomplete staging directories without touching other runtime folders", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-staging-test-"));
+  try {
+    const manager = new RuntimeManager({ appRoot: root, resourceRoot: root, fetch: global.fetch });
+    fs.mkdirSync(path.join(manager.runtimeBase, ".staging-windows-x64-cuda126-py311-old"), { recursive: true });
+    fs.mkdirSync(path.join(manager.runtimeBase, "windows-x64-cuda126-py311"), { recursive: true });
+
+    await manager.clearStagingDirectories("windows-x64-cuda126-py311");
+
+    assert.equal(fs.existsSync(path.join(manager.runtimeBase, ".staging-windows-x64-cuda126-py311-old")), false);
+    assert.equal(fs.existsSync(path.join(manager.runtimeBase, "windows-x64-cuda126-py311")), true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("extractRuntimeArchive rejects a missing archive", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "runtime-extract-test-"));
+  try {
+    await assert.rejects(
+      extractRuntimeArchive(path.join(root, "missing.zip"), root, { timeoutMs: 5000 }),
+      /missing|cannot|Could not|No such file/i
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

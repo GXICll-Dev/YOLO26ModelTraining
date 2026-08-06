@@ -61,8 +61,8 @@ const browserRuntimeStatus: RuntimeStatus = {
 
 const defaultUpdateStatus: AppUpdateStatus = {
   phase: "idle",
-  currentVersion: "0.3.6",
-  latestVersion: "0.3.6",
+  currentVersion: "0.3.7",
+  latestVersion: "0.3.7",
   updateAvailable: false,
   releaseName: "",
   releaseNotes: "",
@@ -161,7 +161,7 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.3.6");
+  const [appVersion, setAppVersion] = useState("0.3.7");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);
@@ -1917,6 +1917,13 @@ function AppUpdateDialog({
   onClose: () => void;
 }) {
   const published = status.publishedAt ? new Date(status.publishedAt).toLocaleString("zh-CN") : "-";
+  const remoteVersionDiffers = Boolean(status.latestVersion && status.latestVersion !== status.currentVersion);
+  const displayedVersion = status.updateAvailable
+    ? status.latestVersion || status.currentVersion
+    : status.currentVersion;
+  const versionDetail = !status.updateAvailable && remoteVersionDiffers
+    ? `线上最新正式版本：v${status.latestVersion}`
+    : `发布时间：${published}`;
   return (
     <div className="modal-backdrop update-modal-backdrop" role="presentation">
       <section className="desktop-modal update-modal" role="dialog" aria-modal="true" aria-label="软件更新">
@@ -1928,12 +1935,12 @@ function AppUpdateDialog({
         </header>
         <div className="modal-body">
           <div className={`update-version-card ${status.updateAvailable ? "available" : "current"}`}>
-            <span>{status.updateAvailable ? "发现新版本" : "当前版本"}</span>
-            <strong>v{status.latestVersion || status.currentVersion}</strong>
-            <small>发布时间：{published}</small>
+            <span>{status.updateAvailable ? "发现新版本" : "当前安装版本"}</span>
+            <strong>v{displayedVersion}</strong>
+            <small>{versionDetail}</small>
           </div>
           <div className="release-notes">
-            <strong>更新内容</strong>
+            <strong>{!status.updateAvailable && remoteVersionDiffers ? "线上最新正式版本内容" : "更新内容"}</strong>
             <div className="release-notes-markdown">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
