@@ -203,6 +203,12 @@ export interface RuntimeStatus {
   ready: boolean;
   source?: "managed" | "bundled" | "development" | string;
   runtimeId: string;
+  runtimeFlavor?: "cpu" | "cuda";
+  recommendedFlavor?: "cpu" | "cuda";
+  hardwareChecked?: boolean;
+  hasNvidiaGPU?: boolean | null;
+  gpuNames?: string[];
+  recommendedDevice?: "auto" | "cpu";
   localVersion: string;
   availableVersion: string;
   runtimeRoot: string;
@@ -212,6 +218,7 @@ export interface RuntimeStatus {
   percent: number;
   currentPackage: string;
   updateAvailable?: boolean;
+  switchAvailable?: boolean;
   message: string;
   error: string;
 }

@@ -6,6 +6,8 @@ import type { AppUpdateStatus, AutoAnnotateReport, ConvertReport, PredictionResu
 
 type Tab = "directory" | "logs" | "test" | "annotate";
 type LogScope = "main" | "predict";
+type DownloadSource = "github" | "proxy";
+type RuntimeFlavor = "cpu" | "cuda";
 type ClassDialogState = { mode: "add" | "edit" | "delete"; value: string; index?: number; error?: string } | null;
 type ConfigUpdater = <K extends keyof TrainingConfig>(key: K, value: TrainingConfig[K]) => void;
 type LayoutRect = { id: string; label: string; x: number; y: number; width: number; height: number };
@@ -26,7 +28,9 @@ declare global {
       runtime: {
         getStatus: () => Promise<RuntimeStatus | null>;
         refresh: () => Promise<RuntimeStatus | null>;
+        selectFlavor: (flavor: RuntimeFlavor) => Promise<RuntimeStatus | null>;
         install: () => Promise<RuntimeStatus>;
+        redeploy: () => Promise<RuntimeStatus>;
         cancel: () => Promise<boolean>;
         onStatus: (callback: (status: RuntimeStatus) => void) => () => void;
       };
@@ -38,6 +42,10 @@ declare global {
         install: () => Promise<AppUpdateStatus>;
         onStatus: (callback: (status: AppUpdateStatus) => void) => () => void;
       };
+      downloads: {
+        getSource: () => Promise<{ source: DownloadSource; proxyBase: string }>;
+        setSource: (source: DownloadSource) => Promise<{ source: DownloadSource; proxyBase: string }>;
+      };
     };
   }
 }
@@ -47,6 +55,12 @@ const browserRuntimeStatus: RuntimeStatus = {
   ready: true,
   source: "development",
   runtimeId: "development",
+  runtimeFlavor: "cuda",
+  recommendedFlavor: "cuda",
+  hardwareChecked: true,
+  hasNvidiaGPU: true,
+  gpuNames: [],
+  recommendedDevice: "auto",
   localVersion: "development",
   availableVersion: "",
   runtimeRoot: "",
@@ -61,8 +75,8 @@ const browserRuntimeStatus: RuntimeStatus = {
 
 const defaultUpdateStatus: AppUpdateStatus = {
   phase: "idle",
-  currentVersion: "0.3.7",
-  latestVersion: "0.3.7",
+  currentVersion: "0.3.8",
+  latestVersion: "0.3.8",
   updateAvailable: false,
   releaseName: "",
   releaseNotes: "",
@@ -136,6 +150,7 @@ export default function App() {
   const [selectedRunDir, setSelectedRunDir] = useState("");
   const [selectedPredictionRunId, setSelectedPredictionRunId] = useState("");
   const [config, setConfig] = useState<TrainingConfig>(defaultConfig);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [convertTask, setConvertTask] = useState<Task | null>(null);
   const [validateTask, setValidateTask] = useState<Task | null>(null);
@@ -161,11 +176,12 @@ export default function App() {
   const [message, setMessage] = useState("就绪");
   const [busy, setBusy] = useState(false);
   const [layoutInspectorOpen, setLayoutInspectorOpen] = useState(false);
-  const [appVersion, setAppVersion] = useState("0.3.7");
+  const [appVersion, setAppVersion] = useState("0.3.8");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>(browserRuntimeStatus);
   const [runtimeDialogOpen, setRuntimeDialogOpen] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<AppUpdateStatus>(defaultUpdateStatus);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const [downloadSource, setDownloadSource] = useState<DownloadSource>("github");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const classDialogInputRef = useRef<HTMLInputElement | null>(null);
   const testFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -180,7 +196,8 @@ export default function App() {
   useEffect(() => {
     api<TrainingConfig>("/api/config")
       .then((loaded) => setConfig(portableTrainingConfig({ ...defaultConfig, ...loaded })))
-      .catch((err) => setMessage(err.message));
+      .catch((err) => setMessage(err.message))
+      .finally(() => setConfigLoaded(true));
     const savedRoot = readStoredValue(storageKeys.projectRoot);
     if (savedRoot) {
       setRootPath(savedRoot);
@@ -211,6 +228,9 @@ export default function App() {
     void desktop.update.getStatus().then((status) => {
       if (active && status) setUpdateStatus(status);
     });
+    void desktop.downloads.getSource().then((value) => {
+      if (active && value?.source) setDownloadSource(value.source);
+    });
     const unsubscribeRuntime = desktop.runtime.onStatus((status) => {
       if (!active) return;
       setRuntimeStatus(status);
@@ -225,6 +245,12 @@ export default function App() {
       unsubscribeUpdate();
     };
   }, []);
+
+  useEffect(() => {
+    if (!configLoaded || !runtimeStatus.hardwareChecked || runtimeStatus.hasNvidiaGPU !== false) return;
+    setConfig((current) => current.device === "auto" ? { ...current, device: "cpu" } : current);
+    setAutoDevice((current) => current === "auto" ? "cpu" : current);
+  }, [configLoaded, runtimeStatus.hardwareChecked, runtimeStatus.hasNvidiaGPU]);
 
   useEffect(() => {
     if (logRef.current) {
@@ -336,7 +362,7 @@ export default function App() {
   function requireRuntime() {
     if (runtimeReady) return true;
     setRuntimeDialogOpen(true);
-    setMessage("请先下载并自动部署 Python/PyTorch/CUDA 运行环境。");
+    setMessage("请先下载并自动部署 Python/PyTorch 运行环境。");
     return false;
   }
 
@@ -354,6 +380,35 @@ export default function App() {
     setRuntimeDialogOpen(true);
     try {
       await window.electronDesktop.runtime.install();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function redeployRuntime() {
+    if (!window.electronDesktop) return;
+    const flavor = (runtimeStatus.runtimeFlavor || "cuda").toUpperCase();
+    if (!window.confirm(`将重新下载并部署 ${flavor} 运行环境。\n\n现有环境会保留到新环境校验通过，是否继续？`)) return;
+    try {
+      await window.electronDesktop.runtime.redeploy();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function selectRuntimeFlavor(flavor: RuntimeFlavor) {
+    try {
+      const status = await window.electronDesktop?.runtime.selectFlavor(flavor);
+      if (status) setRuntimeStatus(status);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function changeDownloadSource(source: DownloadSource) {
+    setDownloadSource(source);
+    try {
+      await window.electronDesktop?.downloads.setSource(source);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
     }
@@ -1815,8 +1870,12 @@ export default function App() {
             status={runtimeStatus}
             busy={runtimeBusy}
             onInstall={() => void installRuntime()}
+            onRedeploy={() => void redeployRuntime()}
             onCancel={() => void cancelRuntimeInstall()}
             onRefresh={() => void refreshRuntimeStatus()}
+            onFlavorChange={(flavor) => void selectRuntimeFlavor(flavor)}
+            downloadSource={downloadSource}
+            onDownloadSourceChange={(source) => void changeDownloadSource(source)}
             onClose={() => setRuntimeDialogOpen(false)}
           />
         )}
@@ -1828,6 +1887,8 @@ export default function App() {
             onDownload={() => void downloadUpdate()}
             onInstall={() => void installUpdate()}
             onCancel={() => void window.electronDesktop?.update.cancel()}
+            downloadSource={downloadSource}
+            onDownloadSourceChange={(source) => void changeDownloadSource(source)}
             onClose={() => setUpdateDialogOpen(false)}
           />
         )}
@@ -1837,19 +1898,48 @@ export default function App() {
   );
 }
 
+function DownloadSourceSelect({
+  value,
+  onChange,
+  disabled
+}: {
+  value: DownloadSource;
+  onChange: (source: DownloadSource) => void;
+  disabled: boolean;
+}) {
+  return (
+    <label className="download-source-select">
+      <span>下载连接</span>
+      <select value={value} onChange={(event) => onChange(event.target.value as DownloadSource)} disabled={disabled}>
+        <option value="proxy">国内加速（gh-proxy.org）</option>
+        <option value="github">GitHub 原始连接</option>
+      </select>
+      <small>无论选择哪个连接，下载后都会校验 SHA-256。</small>
+    </label>
+  );
+}
+
 function RuntimeInstallDialog({
   status,
   busy,
   onInstall,
+  onRedeploy,
   onCancel,
   onRefresh,
+  onFlavorChange,
+  downloadSource,
+  onDownloadSourceChange,
   onClose
 }: {
   status: RuntimeStatus;
   busy: boolean;
   onInstall: () => void;
+  onRedeploy: () => void;
   onCancel: () => void;
   onRefresh: () => void;
+  onFlavorChange: (flavor: RuntimeFlavor) => void;
+  downloadSource: DownloadSource;
+  onDownloadSourceChange: (source: DownloadSource) => void;
   onClose: () => void;
 }) {
   const total = status.totalBytes || 0;
@@ -1872,6 +1962,22 @@ function RuntimeInstallDialog({
             <div><span>下载大小</span><strong>{total ? formatBytes(total) : "等待服务器清单"}</strong></div>
             <div><span>本地版本</span><strong>{status.localVersion || "未安装"}</strong></div>
           </div>
+          <div className={`hardware-runtime-notice ${status.hasNvidiaGPU === false ? "cpu" : "cuda"}`}>
+            {status.hardwareChecked ? status.hasNvidiaGPU === false
+              ? "未检测到可用的 NVIDIA 显卡，推荐 CPU 环境，训练设备已默认设为 CPU。"
+              : `已检测到 NVIDIA 显卡${status.gpuNames?.length ? `：${status.gpuNames.join("、")}` : ""}，推荐 CUDA 环境。`
+              : "正在检测显卡..."}
+          </div>
+          <div className="runtime-options-grid">
+            <label>
+              <span>运行环境类型</span>
+              <select value={status.runtimeFlavor || status.recommendedFlavor || "cuda"} onChange={(event) => onFlavorChange(event.target.value as RuntimeFlavor)} disabled={busy}>
+                <option value="cpu">CPU 通用版{status.recommendedFlavor === "cpu" ? "（推荐）" : ""}</option>
+                <option value="cuda">NVIDIA CUDA 12.6{status.recommendedFlavor === "cuda" ? "（推荐）" : ""}</option>
+              </select>
+            </label>
+            <DownloadSourceSelect value={downloadSource} onChange={onDownloadSourceChange} disabled={busy} />
+          </div>
           {(busy || status.percent > 0 && !status.ready) && (
             <div className="desktop-download-progress">
               <div><span>{status.currentPackage || status.message}</span><strong>{Math.max(0, Math.min(100, status.percent || 0))}%</strong></div>
@@ -1886,8 +1992,11 @@ function RuntimeInstallDialog({
           <button type="button" onClick={onRefresh} disabled={busy}>重新检测</button>
           {busy ? (
             <button type="button" className="danger-action" onClick={onCancel}>取消下载</button>
-          ) : status.ready && !status.updateAvailable ? (
-            <button type="button" className="primary-action" onClick={onClose}>完成</button>
+          ) : status.ready && !status.updateAvailable && !status.switchAvailable ? (
+            <>
+              <button type="button" onClick={onRedeploy}>重新部署</button>
+              <button type="button" className="primary-action" onClick={onClose}>完成</button>
+            </>
           ) : (
             <button type="button" className="primary-action" onClick={onInstall} disabled={!status.availableVersion}>
               {status.updateAvailable ? "更新运行环境" : "下载并自动安装"}
@@ -1906,6 +2015,8 @@ function AppUpdateDialog({
   onDownload,
   onInstall,
   onCancel,
+  downloadSource,
+  onDownloadSourceChange,
   onClose
 }: {
   status: AppUpdateStatus;
@@ -1914,6 +2025,8 @@ function AppUpdateDialog({
   onDownload: () => void;
   onInstall: () => void;
   onCancel: () => void;
+  downloadSource: DownloadSource;
+  onDownloadSourceChange: (source: DownloadSource) => void;
   onClose: () => void;
 }) {
   const published = status.publishedAt ? new Date(status.publishedAt).toLocaleString("zh-CN") : "-";
@@ -1938,6 +2051,9 @@ function AppUpdateDialog({
             <span>{status.updateAvailable ? "发现新版本" : "当前安装版本"}</span>
             <strong>v{displayedVersion}</strong>
             <small>{versionDetail}</small>
+          </div>
+          <div className="update-download-source">
+            <DownloadSourceSelect value={downloadSource} onChange={onDownloadSourceChange} disabled={busy} />
           </div>
           <div className="release-notes">
             <strong>{!status.updateAvailable && remoteVersionDiffers ? "线上最新正式版本内容" : "更新内容"}</strong>

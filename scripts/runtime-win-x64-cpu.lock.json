@@ -7,6 +7,42 @@
     "pythonTag": "cp311",
     "marker": "sys_platform == 'win32' and platform_machine == 'AMD64' and python_version == '3.11'"
   },
+  "accelerator": {
+    "flavor": "cpu",
+    "automaticDevice": false,
+    "cpuFallback": true
+  },
+  "appLocalRuntime": [
+    {
+      "name": "MSVCP140.dll",
+      "source": "tools/labelme/_internal/MSVCP140.dll",
+      "target": "python/MSVCP140.dll",
+      "version": "14.44.35208.0",
+      "sha256": "8f141b4454fa78db34bc1f28c571b4da0e00cd2c43f7ad0e282f313036826aae"
+    },
+    {
+      "name": "VCRUNTIME140.dll",
+      "source": "tools/labelme/_internal/VCRUNTIME140.dll",
+      "target": "python/VCRUNTIME140.dll",
+      "version": "14.44.35208.0",
+      "sha256": "0205071c36c17f1efbd70178c852cb7d49985c484202752b8704b7ac6b184e60"
+    },
+    {
+      "name": "VCRUNTIME140_1.dll",
+      "source": "tools/labelme/_internal/VCRUNTIME140_1.dll",
+      "target": "python/VCRUNTIME140_1.dll",
+      "version": "14.44.35208.0",
+      "sha256": "963e45edd064545962e216c12d68071ced94dc8e11862a18f07f14eb2690a57c"
+    },
+    {
+      "name": "CONCRT140.dll",
+      "fileName": "concrt140-14.44.35211-x64.dll",
+      "url": "https://msdl.microsoft.com/download/symbols/concrt140.dll/E6C651F04E000/concrt140.dll",
+      "target": "python/CONCRT140.dll",
+      "version": "14.44.35211.0",
+      "sha256": "6ef5b3569a7dddf24c56f846670bbd64bb855b6ed5ff7608489613663c588aa7"
+    }
+  ],
   "python": {
     "version": "3.11.9",
     "archiveName": "python-3.11.9-embed-amd64.zip",

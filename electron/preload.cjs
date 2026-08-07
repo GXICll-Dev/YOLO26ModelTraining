@@ -24,7 +24,9 @@ contextBridge.exposeInMainWorld("electronDesktop", {
   runtime: {
     getStatus: () => ipcRenderer.invoke("runtime:get-status"),
     refresh: () => ipcRenderer.invoke("runtime:refresh"),
+    selectFlavor: (flavor) => ipcRenderer.invoke("runtime:select-flavor", flavor),
     install: () => ipcRenderer.invoke("runtime:install"),
+    redeploy: () => ipcRenderer.invoke("runtime:redeploy"),
     cancel: () => ipcRenderer.invoke("runtime:cancel"),
     onStatus: (callback) => subscribe("runtime:status", callback)
   },
@@ -35,5 +37,9 @@ contextBridge.exposeInMainWorld("electronDesktop", {
     cancel: () => ipcRenderer.invoke("update:cancel"),
     install: () => ipcRenderer.invoke("update:install"),
     onStatus: (callback) => subscribe("update:status", callback)
+  },
+  downloads: {
+    getSource: () => ipcRenderer.invoke("downloads:get-source"),
+    setSource: (source) => ipcRenderer.invoke("downloads:set-source", source)
   }
 });

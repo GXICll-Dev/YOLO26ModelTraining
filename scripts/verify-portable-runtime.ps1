@@ -296,10 +296,13 @@ print('__MODELTRAINING_RUNTIME__' + json.dumps(result, ensure_ascii=True))
         throw "Python loaded MSVCP140.dll outside the portable runtime: $($probe.msvcp140Path)"
     }
 $acceleratorFlavor = "cpu"
-$expectedCUDA = ""
-if ($null -ne $config.PSObject.Properties["accelerator"]) {
+    $expectedCUDA = ""
+    if ($null -ne $config.PSObject.Properties["accelerator"]) {
         $acceleratorFlavor = [string]$config.accelerator.flavor
-        $expectedCUDA = [string]$config.accelerator.cudaVersion
+        $cudaVersionProperty = $config.accelerator.PSObject.Properties["cudaVersion"]
+        if ($null -ne $cudaVersionProperty) {
+            $expectedCUDA = [string]$cudaVersionProperty.Value
+        }
     }
     if ($acceleratorFlavor -eq "cuda") {
         if ([string]$probe.torchCuda -ne $expectedCUDA) {

@@ -5,12 +5,29 @@ const fs = require("fs");
 const path = require("path");
 const { Readable } = require("stream");
 const extract = require("extract-zip");
+const { detectNvidiaHardware } = require("./hardware-detection.cjs");
 
 const DEFAULT_RUNTIME_ID = "windows-x64-cuda126-py311";
 const DEFAULT_MANIFEST_URL = "https://raw.githubusercontent.com/GXICll-Dev/YOLO26ModelTraining-Runtime/main/runtime/latest.json";
+const CPU_RUNTIME_ID = "windows-x64-cpu-py311";
+const CPU_MANIFEST_URL = "https://raw.githubusercontent.com/GXICll-Dev/YOLO26ModelTraining-Runtime/main/runtime/latest-cpu.json";
+const RUNTIME_PROFILES = Object.freeze({
+  cuda: { flavor: "cuda", runtimeId: DEFAULT_RUNTIME_ID, manifestURL: DEFAULT_MANIFEST_URL, displayName: "NVIDIA CUDA 12.6" },
+  cpu: { flavor: "cpu", runtimeId: CPU_RUNTIME_ID, manifestURL: CPU_MANIFEST_URL, displayName: "CPU 通用版" }
+});
 const INSTALL_MARKER = "installed-runtime.json";
+const RUNTIME_SELECTION_FILE = "runtime-selection.json";
 const MINIMUM_FREE_BYTES = 10 * 1024 * 1024 * 1024;
 const ARCHIVE_EXTRACTION_TIMEOUT_MS = 30 * 60 * 1000;
+
+function normalizeRuntimeFlavor(value, fallback = "auto") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["auto", "cpu", "cuda"].includes(normalized) ? normalized : fallback;
+}
+
+function runtimeFlavorForId(runtimeId) {
+  return runtimeId === CPU_RUNTIME_ID ? "cpu" : "cuda";
+}
 
 function safeRuntimeId(value) {
   const normalized = String(value || "").trim();
@@ -241,12 +258,30 @@ class RuntimeManager extends EventEmitter {
     super();
     this.resourceRoot = options.resourceRoot;
     this.fetch = options.fetch;
-    this.manifestURL = options.manifestURL || process.env.MT_RUNTIME_MANIFEST_URL || DEFAULT_MANIFEST_URL;
+    this.profiles = {
+      cuda: { ...RUNTIME_PROFILES.cuda, manifestURL: options.manifestURL || process.env.MT_RUNTIME_MANIFEST_URL || DEFAULT_MANIFEST_URL },
+      cpu: { ...RUNTIME_PROFILES.cpu, manifestURL: options.cpuManifestURL || process.env.MT_CPU_RUNTIME_MANIFEST_URL || CPU_MANIFEST_URL }
+    };
+    this.requestedFlavor = normalizeRuntimeFlavor(options.runtimeFlavor);
+    this.activeFlavor = "cuda";
+    this.manifestURL = this.profiles.cuda.manifestURL;
+    this.hardwareDetector = options.hardwareDetector || detectNvidiaHardware;
+    this.hardware = null;
+    this.resolveDownloadURL = options.resolveDownloadURL || ((value) => value);
     const localAppData = options.localAppDataRoot || process.env.LOCALAPPDATA || options.userDataRoot;
     this.storageRoot = options.appRoot || path.join(localAppData, "YOLO26ModelTraining");
+    this.stateRoot = options.stateRoot || path.join(this.storageRoot, "user-data", "state");
+    this.runtimeSelectionPath = path.join(this.stateRoot, RUNTIME_SELECTION_FILE);
+    if (this.requestedFlavor === "auto") {
+      try {
+        this.requestedFlavor = normalizeRuntimeFlavor(readJSON(this.runtimeSelectionPath)?.flavor);
+      } catch {
+        this.requestedFlavor = "auto";
+      }
+    }
     this.runtimeBase = path.join(this.storageRoot, "runtime");
     this.downloadBase = path.join(this.storageRoot, "downloads");
-    this.downloadRoot = path.join(this.downloadBase, "runtime");
+    this.downloadRoot = path.join(this.downloadBase, "runtime", DEFAULT_RUNTIME_ID);
     this.manifest = null;
     this.abortController = null;
     this.activeInstall = null;
@@ -255,6 +290,12 @@ class RuntimeManager extends EventEmitter {
       ready: false,
       source: "",
       runtimeId: DEFAULT_RUNTIME_ID,
+      runtimeFlavor: "cuda",
+      recommendedFlavor: "cuda",
+      hardwareChecked: false,
+      hasNvidiaGPU: null,
+      gpuNames: [],
+      recommendedDevice: "auto",
       localVersion: "",
       availableVersion: "",
       runtimeRoot: "",
@@ -282,6 +323,37 @@ class RuntimeManager extends EventEmitter {
     return path.join(this.runtimeBase, safeRuntimeId(runtimeId));
   }
 
+  downloadRootFor(runtimeId) {
+    return path.join(this.downloadBase, "runtime", safeRuntimeId(runtimeId));
+  }
+
+  async ensureHardware() {
+    if (!this.hardware) {
+      try {
+        this.hardware = await this.hardwareDetector();
+      } catch (error) {
+        this.hardware = {
+          checked: false,
+          hasNvidiaGPU: null,
+          gpuNames: [],
+          recommendedRuntime: "cuda",
+          recommendedDevice: "auto",
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }
+    return this.hardware;
+  }
+
+  profileFor(flavor) {
+    return this.profiles[normalizeRuntimeFlavor(flavor, "cuda")] || this.profiles.cuda;
+  }
+
+  async persistRequestedFlavor(flavor) {
+    await fs.promises.mkdir(this.stateRoot, { recursive: true });
+    await fs.promises.writeFile(this.runtimeSelectionPath, JSON.stringify({ flavor }, null, 2), "utf8");
+  }
+
   bundledCandidates() {
     return [
       this.resourceRoot,
@@ -289,11 +361,15 @@ class RuntimeManager extends EventEmitter {
     ];
   }
 
-  findReadyRoot() {
-    const managedRoot = this.managedRoot();
-    const marker = readJSON(path.join(managedRoot, INSTALL_MARKER));
-    if (marker?.runtimeId === DEFAULT_RUNTIME_ID && runtimeFilesReady(managedRoot, marker.requiredFiles)) {
-      return { root: managedRoot, source: "managed", version: String(marker.runtimeVersion || "") };
+  findReadyRoot(preferredFlavor = "cuda") {
+    const flavorOrder = [normalizeRuntimeFlavor(preferredFlavor, "cuda"), "cuda", "cpu"].filter((value, index, values) => values.indexOf(value) === index);
+    for (const flavor of flavorOrder) {
+      const profile = this.profileFor(flavor);
+      const managedRoot = this.managedRoot(profile.runtimeId);
+      const marker = readJSON(path.join(managedRoot, INSTALL_MARKER));
+      if (marker?.runtimeId === profile.runtimeId && runtimeFilesReady(managedRoot, marker.requiredFiles)) {
+        return { root: managedRoot, source: "managed", version: String(marker.runtimeVersion || ""), runtimeId: profile.runtimeId, flavor };
+      }
     }
     for (const candidate of this.bundledCandidates()) {
       if (runtimeFilesReady(candidate)) {
@@ -301,7 +377,9 @@ class RuntimeManager extends EventEmitter {
         return {
           root: candidate,
           source: this.resourceRoot === candidate ? "bundled" : "development",
-          version: String(manifest?.runtimeVersion || manifest?.runtimeId || "bundled")
+          version: String(manifest?.runtimeVersion || manifest?.runtimeId || "bundled"),
+          runtimeId: String(manifest?.runtimeId || DEFAULT_RUNTIME_ID),
+          flavor: runtimeFlavorForId(String(manifest?.runtimeId || DEFAULT_RUNTIME_ID))
         };
       }
     }
@@ -312,8 +390,13 @@ class RuntimeManager extends EventEmitter {
     return this.state.ready ? this.state.runtimeRoot : "";
   }
 
-  async clearDownloadCache() {
-    await removeDirectory(this.downloadRoot);
+  async clearDownloadCache(runtimeId = this.state.runtimeId || DEFAULT_RUNTIME_ID) {
+    await removeDirectory(this.downloadRootFor(runtimeId));
+    try {
+      await fs.promises.rmdir(path.join(this.downloadBase, "runtime"));
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
+    }
     try {
       await fs.promises.rmdir(this.downloadBase);
     } catch (error) {
@@ -336,15 +419,39 @@ class RuntimeManager extends EventEmitter {
   }
 
   async refresh(options = {}) {
-    const local = this.findReadyRoot();
+    const hardware = await this.ensureHardware();
+    const explicitFlavor = normalizeRuntimeFlavor(options.flavor || this.requestedFlavor);
+    if (options.flavor) await this.persistRequestedFlavor(explicitFlavor);
+    const recommendedFlavor = normalizeRuntimeFlavor(hardware.recommendedRuntime, "cuda");
+    const desiredFlavor = explicitFlavor === "auto" ? recommendedFlavor : explicitFlavor;
+    const local = this.findReadyRoot(desiredFlavor);
+    const activeFlavor = options.flavor ? desiredFlavor : local?.flavor || desiredFlavor;
+    const profile = this.profileFor(activeFlavor);
+    this.requestedFlavor = explicitFlavor;
+    this.activeFlavor = activeFlavor;
+    this.manifestURL = profile.manifestURL;
+    this.downloadRoot = this.downloadRootFor(profile.runtimeId);
+    this.manifest = null;
+    const hardwareState = {
+      runtimeFlavor: activeFlavor,
+      recommendedFlavor,
+      hardwareChecked: Boolean(hardware.checked),
+      hasNvidiaGPU: hardware.hasNvidiaGPU,
+      gpuNames: Array.isArray(hardware.gpuNames) ? hardware.gpuNames : [],
+      recommendedDevice: hardware.recommendedDevice || (recommendedFlavor === "cpu" ? "cpu" : "auto"),
+      manifestURL: profile.manifestURL
+    };
     if (local) {
-      if (local.source === "managed") await this.clearDownloadCache();
+      if (local.source === "managed") await this.clearDownloadCache(local.runtimeId);
       this.emitState({
+        ...hardwareState,
         phase: "ready",
         ready: true,
         source: local.source,
         localVersion: local.version,
         runtimeRoot: local.root,
+        runtimeId: local.runtimeId,
+        runtimeFlavor: local.flavor,
         percent: 100,
         message: "运行环境已就绪。",
         error: ""
@@ -352,11 +459,13 @@ class RuntimeManager extends EventEmitter {
       if (!options.fetchRemote) return this.snapshot();
     } else {
       this.emitState({
+        ...hardwareState,
         phase: "checking",
         ready: false,
         source: "",
         localVersion: "",
         runtimeRoot: "",
+        runtimeId: profile.runtimeId,
         percent: 0,
         message: "正在获取运行环境信息...",
         error: ""
@@ -369,37 +478,53 @@ class RuntimeManager extends EventEmitter {
     }
 
     try {
-      this.manifest = await this.fetchManifest();
-      const updateAvailable = Boolean(local && local.version && local.version !== this.manifest.runtimeVersion && local.source === "managed");
+      this.manifest = await this.fetchManifest(profile);
+      const sameRuntime = Boolean(local && local.runtimeId === this.manifest.runtimeId);
+      const updateAvailable = Boolean(sameRuntime && local.version && local.version !== this.manifest.runtimeVersion && local.source === "managed");
+      const switchAvailable = Boolean(local && !sameRuntime);
       return this.emitState({
+        ...hardwareState,
         phase: local ? "ready" : "missing",
         ready: Boolean(local),
         runtimeId: this.manifest.runtimeId,
         availableVersion: this.manifest.runtimeVersion,
         totalBytes: this.manifest.downloadSize,
         updateAvailable,
+        switchAvailable,
         message: local
-          ? updateAvailable ? `运行环境 ${this.manifest.runtimeVersion} 可更新。` : "运行环境已就绪。"
-          : "尚未安装运行环境，请下载并自动部署。",
+          ? switchAvailable ? `当前使用 ${local.flavor.toUpperCase()} 环境，可重新部署 ${activeFlavor.toUpperCase()} 环境。`
+            : updateAvailable ? `运行环境 ${this.manifest.runtimeVersion} 可更新。` : "运行环境已就绪。"
+          : `尚未安装 ${activeFlavor.toUpperCase()} 运行环境，请下载并自动部署。`,
         error: ""
       });
     } catch (error) {
+      const switchAvailable = Boolean(local && local.runtimeId !== profile.runtimeId);
       return this.emitState({
+        ...hardwareState,
         phase: local ? "ready" : "missing",
         ready: Boolean(local),
+        runtimeId: profile.runtimeId,
+        availableVersion: "",
+        totalBytes: 0,
+        updateAvailable: false,
+        switchAvailable,
         message: local ? "运行环境已就绪，但无法检查服务器版本。" : "无法获取运行环境下载信息。",
         error: error instanceof Error ? error.message : String(error)
       });
     }
   }
 
-  async fetchManifest() {
+  async fetchManifest(profile = this.profileFor(this.activeFlavor)) {
     if (typeof this.fetch !== "function") throw new Error("当前环境不支持网络下载。 ");
-    const response = await this.fetch(this.manifestURL, {
+    const response = await this.fetch(this.resolveDownloadURL(profile.manifestURL), {
       headers: { "Cache-Control": "no-cache", "User-Agent": "YOLO26ModelTraining-RuntimeManager" }
     });
     if (!response.ok) throw new Error(`运行环境服务器返回 HTTP ${response.status}。`);
-    return normalizeManifest(await response.json(), this.manifestURL);
+    const manifest = normalizeManifest(await response.json(), profile.manifestURL);
+    if (manifest.runtimeId !== profile.runtimeId) {
+      throw new Error(`运行环境清单 ID 与 ${profile.flavor.toUpperCase()} profile 不匹配。`);
+    }
+    return manifest;
   }
 
   cancel() {
@@ -420,6 +545,7 @@ class RuntimeManager extends EventEmitter {
   async installInternal() {
     if (!this.manifest) this.manifest = await this.fetchManifest();
     const manifest = this.manifest;
+    this.downloadRoot = this.downloadRootFor(manifest.runtimeId);
     await fs.promises.mkdir(this.storageRoot, { recursive: true });
     const free = fs.statfsSync(this.storageRoot, { bigint: true });
     const availableBytes = Number(free.bavail * free.bsize);
@@ -485,7 +611,7 @@ class RuntimeManager extends EventEmitter {
         };
         await fs.promises.writeFile(path.join(staging, INSTALL_MARKER), JSON.stringify(marker, null, 2), "utf8");
         this.emitState({ phase: "installing", percent: 99, currentPackage: "", message: "正在清理运行环境安装分包..." });
-        await this.clearDownloadCache();
+        await this.clearDownloadCache(manifest.runtimeId);
         await this.activate(staging, this.managedRoot(manifest.runtimeId));
         return this.emitState({
           phase: "ready",
@@ -493,6 +619,8 @@ class RuntimeManager extends EventEmitter {
           source: "managed",
           localVersion: manifest.runtimeVersion,
           runtimeRoot: this.managedRoot(manifest.runtimeId),
+          runtimeId: manifest.runtimeId,
+          runtimeFlavor: runtimeFlavorForId(manifest.runtimeId),
           downloadedBytes: manifest.downloadSize,
           totalBytes: manifest.downloadSize,
           percent: 100,
@@ -507,13 +635,15 @@ class RuntimeManager extends EventEmitter {
       }
     } catch (error) {
       const canceled = signal.aborted;
-      const fallback = this.findReadyRoot();
+      const fallback = this.findReadyRoot(this.activeFlavor);
       this.emitState({
         phase: fallback ? "ready" : canceled ? "missing" : "failed",
         ready: Boolean(fallback),
         source: fallback?.source || "",
         localVersion: fallback?.version || "",
         runtimeRoot: fallback?.root || "",
+        runtimeId: fallback?.runtimeId || manifest.runtimeId,
+        runtimeFlavor: fallback?.flavor || runtimeFlavorForId(manifest.runtimeId),
         currentPackage: "",
         message: fallback
           ? "新运行环境部署未完成，现有运行环境仍可继续使用。"
@@ -547,7 +677,7 @@ class RuntimeManager extends EventEmitter {
       "Accept": "application/octet-stream"
     };
     if (existing > 0) headers.Range = `bytes=${existing}-`;
-    const response = await this.fetch(item.url, { headers, signal });
+    const response = await this.fetch(this.resolveDownloadURL(item.url), { headers, signal });
     if (response.status === 416 && existing === item.size) {
       await fs.promises.rename(partPath, destination);
     } else {
@@ -622,6 +752,9 @@ class RuntimeManager extends EventEmitter {
 module.exports = {
   DEFAULT_MANIFEST_URL,
   DEFAULT_RUNTIME_ID,
+  CPU_MANIFEST_URL,
+  CPU_RUNTIME_ID,
+  RUNTIME_PROFILES,
   RuntimeManager,
   extractRuntimeArchive,
   normalizeManifest,
@@ -629,5 +762,7 @@ module.exports = {
   runtimeFilesReady,
   safeRelativePath,
   safeRuntimeId,
+  normalizeRuntimeFlavor,
+  runtimeFlavorForId,
   sha256File
 };

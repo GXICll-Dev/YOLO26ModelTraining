@@ -58,6 +58,7 @@ class UpdateManager extends EventEmitter {
     this.currentVersion = options.currentVersion;
     this.fetch = options.fetch;
     this.spawn = options.spawn || spawn;
+    this.resolveDownloadURL = options.resolveDownloadURL || ((value) => value);
     this.releaseAPI = options.releaseAPI || process.env.MT_UPDATE_RELEASE_API || DEFAULT_RELEASE_API;
     const localAppData = options.localAppDataRoot || process.env.LOCALAPPDATA || options.userDataRoot;
     const appRoot = options.appRoot || path.join(localAppData, "YOLO26ModelTraining");
@@ -174,7 +175,7 @@ class UpdateManager extends EventEmitter {
     if (existing > 0) headers.Range = `bytes=${existing}-`;
     this.emitState({ phase: "downloading", downloadedBytes: existing, percent: Math.floor((existing / this.installer.size) * 100), message: "正在下载安装包...", error: "" });
     try {
-      const response = await this.fetch(this.installer.browser_download_url, { headers, signal });
+      const response = await this.fetch(this.resolveDownloadURL(this.installer.browser_download_url), { headers, signal });
       if (!response.ok && response.status !== 206) throw new Error(`安装包下载返回 HTTP ${response.status}。`);
       if (existing > 0 && response.status !== 206) {
         await fs.promises.rm(partPath, { force: true });
@@ -203,7 +204,7 @@ class UpdateManager extends EventEmitter {
       if (!expected) {
         const asset = checksumAsset(this.release, this.installer);
         if (!asset) throw new Error("更新缺少 SHA-256 校验文件，已拒绝安装。 ");
-        const text = await responseText(this.fetch, asset.browser_download_url, signal);
+        const text = await responseText(this.fetch, this.resolveDownloadURL(asset.browser_download_url), signal);
         const match = text.match(/[a-f0-9]{64}/i);
         if (!match) throw new Error("无法读取安装包 SHA-256。 ");
         expected = match[0].toLowerCase();

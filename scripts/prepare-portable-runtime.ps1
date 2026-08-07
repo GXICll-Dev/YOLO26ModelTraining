@@ -321,8 +321,15 @@ if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
 
 $pythonArchive = Get-VerifiedDownload ([string]$config.python.url) (Join-Path $downloads ([string]$config.python.archiveName)) ([string]$config.python.sha256) $cacheRoot
 $pipWheel = Get-VerifiedDownload ([string]$config.pip.url) (Join-Path $downloads ([string]$config.pip.wheelName)) ([string]$config.pip.sha256) $cacheRoot
+$runtimeWheelsProperty = $config.PSObject.Properties["runtimeWheels"]
+if ($null -eq $runtimeWheelsProperty) {
+    $runtimeWheelsProperty = $config.PSObject.Properties["cpuWheels"]
+}
+if ($null -eq $runtimeWheelsProperty -or @($runtimeWheelsProperty.Value).Count -eq 0) {
+    throw "Runtime lock does not define runtimeWheels or cpuWheels."
+}
 $runtimeWheelPaths = @()
-foreach ($wheel in @($config.runtimeWheels)) {
+foreach ($wheel in @($runtimeWheelsProperty.Value)) {
     $runtimeWheelPaths += Get-VerifiedDownload ([string]$wheel.url) (Join-Path $wheelhouse ([string]$wheel.fileName)) ([string]$wheel.sha256) $cacheRoot
 }
 

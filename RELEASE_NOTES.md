@@ -1,3 +1,16 @@
+# v0.3.8
+
+本次更新完善了 GitHub 下载策略、运行环境重新部署以及无 NVIDIA 显卡电脑的 CPU 运行环境支持。
+
+- 软件更新和 Runtime 下载可选择“国内加速（gh-proxy.org）”或“GitHub 原始连接”，选择会持久保存。
+- 国内加速同时覆盖 Runtime 在线清单和 GitHub Release 分包，下载后仍强制校验 SHA-256。
+- 增加“重新部署运行环境”，新环境完整下载、解压和验证成功前不会替换现有环境。
+- 自动检测 NVIDIA 显卡；未检测到兼容显卡时推荐 CPU Runtime，并将训练与自动标注默认设为 CPU。
+- 支持 CPU/CUDA Runtime 手动切换并持久保存选择。
+- 新增独立的 Windows x64 PyTorch CPU Runtime，CPU 电脑无需下载 CUDA 环境。
+
+---
+
 # v0.3.7
 
 修复首次安装运行环时可能长时停在“正在解压部署 1/7”的问题。

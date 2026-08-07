@@ -1,6 +1,6 @@
 {
   "name": "modeltraining-yolo26-desktop",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "productName": "基于YOLO26的铝型方管缺陷智能分类检测系统",
   "description": "基于YOLO26的铝型方管缺陷智能分类检测系统",
   "main": "electron/main.cjs",
@@ -10,9 +10,13 @@
     "clean:out": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path out) { Remove-Item out -Recurse -Force }\"",
     "clean:web": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Test-Path web/dist) { Remove-Item web/dist -Recurse -Force }\"",
     "runtime:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1",
+    "runtime:prepare:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1 -ConfigPath scripts/runtime-win-x64-cpu.lock.json",
     "runtime:rebuild": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1 -Force",
+    "runtime:rebuild:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-portable-runtime.ps1 -ConfigPath scripts/runtime-win-x64-cpu.lock.json -Force",
     "runtime:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-portable-runtime.ps1",
+    "runtime:verify:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-portable-runtime.ps1 -ConfigPath scripts/runtime-win-x64-cpu.lock.json",
     "runtime:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-runtime-release.ps1",
+    "runtime:release:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-runtime-release.ps1 -ConfigPath scripts/runtime-win-x64-cpu.lock.json",
     "runtime:release:verify": "node electron/verify-runtime-release.cjs",
     "build:web": "npm run clean:web && npm --prefix web run build",
     "build:server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-server-win-x64.ps1",
@@ -25,7 +29,8 @@
     "electron:make": "npm run clean:out && npm run build:portable && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-win-x64.ps1",
     "electron:installer": "npm run build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-installer-win-x64.ps1",
     "release:app": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-app-release.ps1",
-    "release:runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-runtime-release.ps1"
+    "release:runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-runtime-release.ps1",
+    "release:runtime:cpu": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/publish-runtime-release.ps1 -ConfigPath scripts/runtime-win-x64-cpu.lock.json"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.2",

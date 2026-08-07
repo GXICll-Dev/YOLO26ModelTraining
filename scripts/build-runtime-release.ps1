@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$RuntimeVersion = "1.0.0",
+    [string]$ConfigPath,
     [string]$OutputDir,
     [long]$MaxPackageBytes = 1400MB,
     [string]$ReleaseRepository = "GXICll-Dev/YOLO26ModelTraining-Runtime"
@@ -75,7 +76,7 @@ function Split-Files([object[]]$Files, [long]$MaximumBytes) {
             throw "A single runtime file exceeds the package limit: $($file.SourcePath) ($($file.Length) bytes)"
         }
         if ($current.Count -gt 0 -and ($currentBytes + $file.Length) -gt $MaximumBytes) {
-            $groups.Add(@($current))
+            $groups.Add([PSCustomObject]@{ Files = @($current) })
             $current = [Collections.Generic.List[object]]::new()
             $currentBytes = 0
         }
@@ -83,7 +84,7 @@ function Split-Files([object[]]$Files, [long]$MaximumBytes) {
         $currentBytes += $file.Length
     }
     if ($current.Count -gt 0) {
-        $groups.Add(@($current))
+        $groups.Add([PSCustomObject]@{ Files = @($current) })
     }
     return @($groups)
 }
@@ -100,7 +101,7 @@ function New-PackageRecord([string]$Name, [string]$FileName, [object[]]$Files) {
     [PSCustomObject]@{
         name = $Name
         fileName = $FileName
-        url = "https://github.com/$ReleaseRepository/releases/download/runtime-v$RuntimeVersion/$FileName"
+        url = "https://github.com/$ReleaseRepository/releases/download/$releaseTag/$FileName"
         size = [long]$info.Length
         sha256 = $hash
     }
@@ -111,8 +112,29 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot ".."))
+if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
+    $ConfigPath = Join-Path $scriptRoot "runtime-win-x64-cuda.lock.json"
+}
+$ConfigPath = [IO.Path]::GetFullPath($ConfigPath)
+if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
+    throw "Runtime lock file not found: $ConfigPath"
+}
+$config = [IO.File]::ReadAllText($ConfigPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+$acceleratorProperty = $config.PSObject.Properties["accelerator"]
+$flavor = if ($null -ne $acceleratorProperty -and -not [string]::IsNullOrWhiteSpace([string]$acceleratorProperty.Value.flavor)) {
+    ([string]$acceleratorProperty.Value.flavor).ToLowerInvariant()
+} elseif (([string]$config.runtimeId) -match "cpu") {
+    "cpu"
+} else {
+    "cuda"
+}
+if ($flavor -notin @("cpu", "cuda")) {
+    throw "Unsupported runtime accelerator flavor: $flavor"
+}
+$releaseTag = if ($flavor -eq "cpu") { "runtime-cpu-v$RuntimeVersion" } else { "runtime-v$RuntimeVersion" }
+$assetPrefix = if ($flavor -eq "cpu") { "runtime-cpu-" } else { "runtime-" }
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
-    $OutputDir = Join-Path $repoRoot "artifacts\runtime-release\runtime-v$RuntimeVersion"
+    $OutputDir = Join-Path $repoRoot "artifacts\runtime-release\$releaseTag"
 }
 $OutputDir = Assert-PathWithin $OutputDir $repoRoot
 [IO.Directory]::CreateDirectory($OutputDir) | Out-Null
@@ -130,7 +152,7 @@ foreach ($required in @($pythonRoot, $torchRoot, $modelsRoot, $toolsRoot, $runti
     }
 }
 
-& (Join-Path $scriptRoot "verify-portable-runtime.ps1") -RuntimeRoot $runtimeRoot
+& (Join-Path $scriptRoot "verify-portable-runtime.ps1") -RuntimeRoot $runtimeRoot -ConfigPath $ConfigPath
 
 $allPython = Get-MappedFiles $pythonRoot "python"
 $torchPrefix = ([IO.Path]::GetFullPath($torchRoot).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar)
@@ -141,16 +163,16 @@ $modelFiles = @(Get-MappedFiles $modelsRoot "models")
 $modelFiles += [PSCustomObject]@{ SourcePath = $runtimeManifest; RelativePath = "runtime-manifest.json"; Length = (Get-Item -LiteralPath $runtimeManifest).Length }
 
 $packages = [Collections.Generic.List[object]]::new()
-$packages.Add((New-PackageRecord "Python base runtime" "runtime-python-base-v$RuntimeVersion.zip" $pythonBaseFiles))
+$packages.Add((New-PackageRecord "Python base runtime" "${assetPrefix}python-base-v$RuntimeVersion.zip" $pythonBaseFiles))
 
-$torchGroups = Split-Files $torchFiles $MaxPackageBytes
+$torchGroups = @(Split-Files $torchFiles $MaxPackageBytes)
 for ($index = 0; $index -lt $torchGroups.Count; $index++) {
     $number = ($index + 1).ToString("00")
-    $packages.Add((New-PackageRecord "PyTorch CUDA package $($index + 1)/$($torchGroups.Count)" "runtime-torch-$number-v$RuntimeVersion.zip" @($torchGroups[$index])))
+    $packages.Add((New-PackageRecord "PyTorch $($flavor.ToUpperInvariant()) package $($index + 1)/$($torchGroups.Count)" "${assetPrefix}torch-$number-v$RuntimeVersion.zip" @($torchGroups[$index].Files)))
 }
 
-$packages.Add((New-PackageRecord "LabelMe tools" "runtime-tools-v$RuntimeVersion.zip" $toolFiles))
-$packages.Add((New-PackageRecord "YOLO26 models and manifest" "runtime-models-v$RuntimeVersion.zip" $modelFiles))
+$packages.Add((New-PackageRecord "LabelMe tools" "${assetPrefix}tools-v$RuntimeVersion.zip" $toolFiles))
+$packages.Add((New-PackageRecord "YOLO26 models and manifest" "${assetPrefix}models-v$RuntimeVersion.zip" $modelFiles))
 
 $requiredRelativePaths = @(
     "python/python.exe",
@@ -158,12 +180,14 @@ $requiredRelativePaths = @(
     "python/MSVCP140.dll",
     "python/CONCRT140.dll",
     "python/Lib/site-packages/torch/__init__.py",
-    "python/Lib/site-packages/torch/lib/torch_cuda.dll",
     "python/Lib/site-packages/ultralytics/__init__.py",
     "models/yolo26n.pt",
     "tools/labelme/labelme.exe",
     "runtime-manifest.json"
 )
+if ($flavor -eq "cuda") {
+    $requiredRelativePaths += "python/Lib/site-packages/torch/lib/torch_cuda.dll"
+}
 $requiredFiles = foreach ($relative in $requiredRelativePaths) {
     $source = if ($relative.StartsWith("tools/labelme/")) {
         Join-Path $repoRoot $relative.Replace("/", "\")
@@ -184,9 +208,9 @@ $requiredFiles = foreach ($relative in $requiredRelativePaths) {
 $installedSize = ($allPython + $toolFiles + $modelFiles | Measure-Object -Property Length -Sum).Sum
 $release = [ordered]@{
     schemaVersion = 1
-    runtimeId = "windows-x64-cuda126-py311"
+    runtimeId = [string]$config.runtimeId
     runtimeVersion = $RuntimeVersion
-    displayName = "Windows x64 / Python 3.11 / PyTorch CUDA 12.6"
+    displayName = if ($flavor -eq "cpu") { "Windows x64 / Python 3.11 / PyTorch CPU" } else { "Windows x64 / Python 3.11 / PyTorch CUDA 12.6" }
     publishedAt = [DateTime]::UtcNow.ToString("o")
     installedSize = [long]$installedSize
     packages = @($packages)

@@ -4,6 +4,7 @@ const fs = require("fs");
 const http = require("http");
 const net = require("net");
 const path = require("path");
+const { DownloadSourceStore } = require("./download-source.cjs");
 const { RuntimeManager } = require("./runtime-manager.cjs");
 const {
   managedAppRoot,
@@ -75,6 +76,7 @@ let shuttingDown = false;
 let appURL = "";
 let runtimeManager = null;
 let updateManager = null;
+let downloadSourceStore = null;
 
 function resourceRoot() {
   return app.isPackaged ? process.resourcesPath : path.resolve(__dirname, "..");
@@ -410,10 +412,15 @@ if (!squirrelStartup) app.whenReady().then(async () => {
       }
     }
     const fetcher = (url, init) => electronNet.fetch(url, init);
+    const stateRoot = path.join(app.getPath("userData"), "state");
+    downloadSourceStore = new DownloadSourceStore({ stateRoot });
+    const resolveDownloadURL = (url) => downloadSourceStore.resolve(url);
     runtimeManager = new RuntimeManager({
       resourceRoot: resourceRoot(),
       appRoot: applicationRoot,
-      fetch: fetcher
+      stateRoot,
+      fetch: fetcher,
+      resolveDownloadURL
     });
     runtimeManager.on("status", (status) => sendDesktopStatus("runtime:status", status));
     await runtimeManager.refresh({ fetchRemote: false });
@@ -422,6 +429,7 @@ if (!squirrelStartup) app.whenReady().then(async () => {
       currentVersion: app.getVersion(),
       appRoot: applicationRoot,
       fetch: fetcher,
+      resolveDownloadURL,
       quitAndInstall: () => setTimeout(() => app.quit(), 500)
     });
     updateManager.on("status", (status) => sendDesktopStatus("update:status", status));
@@ -468,7 +476,9 @@ ipcMain.handle("runtime:get-status", () => runtimeManager?.snapshot() ?? null);
 
 ipcMain.handle("runtime:refresh", () => runtimeManager?.refresh({ fetchRemote: true }) ?? null);
 
-ipcMain.handle("runtime:install", async () => {
+ipcMain.handle("runtime:select-flavor", (_event, flavor) => runtimeManager?.refresh({ fetchRemote: true, flavor }) ?? null);
+
+async function installRuntimeAndRelaunch() {
   if (!runtimeManager) throw new Error("运行环境管理器尚未启动。");
   const status = await runtimeManager.install();
   setTimeout(() => {
@@ -476,7 +486,11 @@ ipcMain.handle("runtime:install", async () => {
     app.exit(0);
   }, 1000);
   return status;
-});
+}
+
+ipcMain.handle("runtime:install", installRuntimeAndRelaunch);
+
+ipcMain.handle("runtime:redeploy", installRuntimeAndRelaunch);
 
 ipcMain.handle("runtime:cancel", () => runtimeManager?.cancel() ?? false);
 
@@ -494,6 +508,13 @@ ipcMain.handle("update:cancel", () => updateManager?.cancel() ?? false);
 ipcMain.handle("update:install", () => {
   if (!updateManager) throw new Error("软件更新管理器尚未启动。");
   return updateManager.install();
+});
+
+ipcMain.handle("downloads:get-source", () => downloadSourceStore?.snapshot() ?? { source: "github", proxyBase: "https://gh-proxy.org/" });
+
+ipcMain.handle("downloads:set-source", async (_event, source) => {
+  if (!downloadSourceStore) throw new Error("下载源设置尚未初始化。");
+  return downloadSourceStore.setSource(source);
 });
 
 ipcMain.handle("dialog:choose-directory", async (event) => {
